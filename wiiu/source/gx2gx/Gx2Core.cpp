@@ -741,7 +741,7 @@ void GX_SetTevOrder(u8 stage, u8 texcoord, u32 texmap, u8 color)
 	if (stage < kMaxTevStages) {
 		TevStage &s = S.tev.stage[stage];
 		s.texcoord = texcoord;
-		s.texmap = (uint8_t) (texmap & 0xff);
+		s.texmap = (texmap & GX_TEXMAP_DISABLE) ? (uint8_t) GX_TEXMAP_NULL : (uint8_t) (texmap & 0xff);
 		s.color = color;
 	}
 }

@@ -82,6 +82,7 @@ struct Backend2 : Backend {
 
 	GX2ColorBuffer efbCb;
 	GX2Texture efbTex;
+	GpuTex *dummy;           /* 1x1 white, bound to texture units nothing else is bound to */
 	GpuTex *presentTex[2];   /* frames handed to the app: valid until the second following present */
 	int presentParity;
 	GX2DepthBuffer depth;
@@ -115,6 +116,7 @@ struct Backend2 : Backend {
 		memset(&efbCb, 0, sizeof(efbCb));
 		memset(&efbTex, 0, sizeof(efbTex));
 		presentTex[0] = presentTex[1] = 0;
+		dummy = 0;
 		memset(&depth, 0, sizeof(depth));
 		memset(&last, 0, sizeof(last));
 		memset(ps, 0, sizeof(ps));
@@ -201,6 +203,12 @@ bool Backend2::setup(int s)
 	GX2InitColorBufferRegs(&efbCb);
 	texViewOf(&efbTex, efbCb.surface);
 
+	{
+		const uint8_t white[4] = { 255, 255, 255, 255 };
+		dummy = (GpuTex *) createTexture(1, 1, white);
+		if (!dummy)
+			return false;
+	}
 	for (int i = 0; i < 2; i++) {
 		presentTex[i] = (GpuTex *) createRenderTexture(efbW, efbH);
 		if (!presentTex[i])
@@ -261,6 +269,10 @@ bool Backend2::setup(int s)
 void Backend2::teardown()
 {
 	GX2DrawDone();
+	if (dummy) {
+		destroyTexture(dummy);
+		dummy = 0;
+	}
 	for (int i = 0; i < 2; i++) {
 		if (presentTex[i]) {
 			destroyTexture(presentTex[i]);
@@ -462,7 +474,7 @@ void Backend2::issue(const DrawCall &dc, bool toEfb, int tw, int th)
 	for (int u = 0; u < 2; u++) {
 		const GpuTex *gt = (const GpuTex *) dc.tex[u].tex;
 		if (!gt)
-			continue;
+			gt = dummy;   /* the shader samples both units, so both must be bound */
 		if (dc.tex[u].compMap != 0x00010203) {
 			GX2Texture tmp = gt->tex;
 			tmp.compMap = dc.tex[u].compMap;
