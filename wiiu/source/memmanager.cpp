@@ -1,0 +1,125 @@
+/****************************************************************************
+ * Snes9x GX
+ *
+ * Daryl Borth 2026
+ *
+ * memmanager.cpp
+ *
+ * Memory manager
+ ***************************************************************************/
+
+#ifdef GEKKO
+#include <ogc/system.h>
+#endif
+#include <malloc.h>
+#include "snes9xgx.h"
+#include "memmanager.h"
+#include "filebrowser.h"
+#include "fileop.h"
+#include "snes9x/memmap.h"
+
+#include "libgui/GuiImageData.h"
+
+#ifdef HW_DOL
+#include "drivers/ogc/gamecube/vm/vm.h"
+#endif
+
+#define MEM2_SIZE		(42*1024*1024)
+
+enum
+{
+	MEMORY_MODE_MENU,
+	MEMORY_MODE_GAME
+};
+#ifdef HW_DOL
+static mspace aram_space = nullptr;
+#endif
+
+uint8_t * romPtr = nullptr;
+
+void InitMemManager ()
+{
+	#ifdef HW_DOL
+	VM_Init(ARAM_SIZE, MRAM_BACKING); // Setup Virtual Memory with the entire ARAM
+	aram_space = create_mspace_with_base((void *)ARAM_VM_BASE, ARAM_SIZE, 1);
+	mspace_set_footprint_limit(aram_space, ARAM_SIZE);
+	romPtr = (uint8 *)extmem_malloc(Memory.MAX_ROM_SIZE + 0x200 + 0x8000);
+	void * decodeScratch = extmem_malloc(IMAGE_DECODE_SCRATCH_SIZE);
+	#elif HW_RVL
+	romPtr = (uint8 *) mem2_malloc(Memory.MAX_ROM_SIZE + 0x200 + 0x8000);
+	void * decodeScratch = mem2_malloc(IMAGE_DECODE_SCRATCH_SIZE);
+	#else
+	romPtr = (uint8 *) malloc(Memory.MAX_ROM_SIZE + 0x200 + 0x8000);
+	void * decodeScratch = malloc(IMAGE_DECODE_SCRATCH_SIZE);
+	browserList = (BROWSERENTRY *)malloc(sizeof(BROWSERENTRY)*MAX_BROWSER_SIZE);
+	#endif
+
+	GuiImageData::setDecodeScratch(decodeScratch, IMAGE_DECODE_SCRATCH_SIZE);
+
+	SwitchMemoryModeMenu();
+}
+
+#if (!defined(HW_RVL) && !defined(HW_DOL))
+void* extmem_malloc(uint32_t size) { return memalign(FILE_BUFFER_ALIGN, size); }
+char* extmem_strdup(const char *s) { return strdup(s); }
+void extmem_free(void *ptr) { free(ptr); }
+int extmem_size_free() { return 0; }
+void SwitchMemoryModeMenu() { }
+void SwitchMemoryModeGame() { }
+#else
+static int memoryMode = -1;
+
+void* extmem_malloc(uint32_t size)
+{
+#if HW_RVL
+	return mem2_malloc(size);
+#else
+	return mspace_malloc(aram_space, size);
+#endif
+}
+
+char* extmem_strdup(const char *s)
+{
+#if HW_RVL
+	return mem2_strdup(s);
+#else
+	return mspace_strdup(aram_space, s);
+#endif
+}
+
+void extmem_free(void *ptr)
+{
+#if HW_RVL
+	return mem2_free(ptr);
+#else
+	mspace_free(aram_space, ptr);
+#endif
+}
+
+int extmem_size_free()
+{
+#if HW_RVL
+	return SYS_GetArena2Size();
+#else
+	struct mallinfo info = mspace_mallinfo(aram_space);
+	return info.fordblks;
+#endif
+}
+
+void SwitchMemoryModeMenu() {
+	if(memoryMode == MEMORY_MODE_MENU)
+		return;
+
+	memoryMode = MEMORY_MODE_MENU;
+	browserList = (BROWSERENTRY *)extmem_malloc(sizeof(BROWSERENTRY)*MAX_BROWSER_SIZE);
+}
+
+void SwitchMemoryModeGame() {
+	if(memoryMode == MEMORY_MODE_GAME)
+		return;
+
+	memoryMode = MEMORY_MODE_GAME;
+	extmem_free(browserList);
+	browserList = nullptr;
+}
+#endif

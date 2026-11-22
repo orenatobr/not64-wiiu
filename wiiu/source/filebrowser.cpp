@@ -1,0 +1,1011 @@
+/****************************************************************************
+ * Snes9x GX
+ *
+ * Daryl Borth 2008-2026
+ *
+ * filebrowser.cpp
+ *
+ * Generic file routines - reading, writing, browsing
+ ***************************************************************************/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/dir.h>
+#include <sys/stat.h>
+
+#include "snes9x/port.h"
+#include "snes9xgx.h"
+#include "filebrowser.h"
+#include "menu/menu.h"
+#include "video.h"
+#include "fileop.h"
+#include "input.h"
+#include "utils/decompress.h"
+#include "freeze.h"
+#include "sram.h"
+#include "savemode.h"
+#include "widgets/GuiSaveBrowser.h"
+
+#include "snes9x/snes9x.h"
+#include "snes9x/memmap.h"
+#include "snes9x/cheats.h"
+#include "drivers/Platform.h"
+#include "drivers/FileSystemDriver.h"
+#include "drivers/safestr.h"
+
+BROWSERINFO browser;
+BROWSERENTRY * browserList = nullptr; // list of files/folders in browser
+bool browserDeviceListChanged = false;
+volatile uint32_t removedDeviceMask = 0;
+
+static char szpath[MAXPATHLEN];
+char szname[MAXPATHLEN];
+bool inSz = false;
+
+unsigned long SNESROMSize = 0;
+bool bsxBiosLoadFailed;
+
+extern bool isBSX();
+
+bool isValidLoadDevice(int device)
+{
+	int numLoadDevices;
+	const int * loadDevices = platform->getFileSystem()->getValidLoadDevices(numLoadDevices);
+	for (int i = 0; i < numLoadDevices; i++) {
+		if (loadDevices[i] == device) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool isValidSaveDevice(int device)
+{
+	int numSaveDevices;
+	const int * saveDevices = platform->getFileSystem()->getValidSaveDevices(numSaveDevices);
+	for (int i = 0; i < numSaveDevices; i++) {
+		if (saveDevices[i] == device) {
+			return true;
+		}
+	}
+	return false;
+}
+
+int getNextLoadDevice(int device)
+{
+	int numLoadDevices;
+	const int * loadDevices = platform->getFileSystem()->getValidLoadDevices(numLoadDevices);
+	for (int i = 0; i < numLoadDevices; i++) {
+		if (loadDevices[i] == device) {
+			return loadDevices[(i + 1) % numLoadDevices];
+		}
+	}
+	return DEVICE_AUTO;
+}
+
+int getNextSaveDevice(int device)
+{
+	int numSaveDevices;
+	const int * saveDevices = platform->getFileSystem()->getValidSaveDevices(numSaveDevices);
+	for (int i = 0; i < numSaveDevices; i++) {
+		if (saveDevices[i] == device) {
+			return saveDevices[(i + 1) % numSaveDevices];
+		}
+	}
+	return DEVICE_AUTO;
+}
+
+/****************************************************************************
+* ScanForLoadDevice() / ScanForSaveDevice()
+* Walk every valid load/save device once, mounting each
+* Returns the first device with the relevant default folder
+* already on it, or failing that the first device that mounted at all, or
+* DEVICE_AUTO if nothing mounted.
+****************************************************************************/
+static int ScanForLoadDevice(bool tried[DEVICE_LENGTH], bool mounted[DEVICE_LENGTH])
+{
+	char defaultFolderPath[MAXPATHLEN];
+	char fullPath[MAXPATHLEN];
+	int firstConnectedDevice = DEVICE_AUTO;
+
+	GetDefaultFolderPath(defaultFolderPath, loadFolder[LOADFOLDER_ROMS].name);
+
+	int numLoadDevices;
+	const int * loadDevices = platform->getFileSystem()->getValidLoadDevices(numLoadDevices);
+
+	for (int i = 1; i < numLoadDevices; i++) {
+		int id = loadDevices[i];
+
+		if (id == DEVICE_DVD || id == DEVICE_SD_GCLOADER)
+			continue;
+
+		if (!tried[id]) {
+			tried[id] = true;
+			mounted[id] = ChangeInterface(id, SILENT);
+		}
+		if (!mounted[id])
+			continue;
+
+		if (firstConnectedDevice == DEVICE_AUTO)
+			firstConnectedDevice = id;
+
+		if (MakeFilePathForFolderPath(fullPath, id, defaultFolderPath) && DirExists(fullPath))
+			return id;
+	}
+
+	return firstConnectedDevice;
+}
+
+static int ScanForSaveDevice(bool tried[DEVICE_LENGTH], bool mounted[DEVICE_LENGTH])
+{
+	char defaultFolderPath[MAXPATHLEN];
+	char fullPath[MAXPATHLEN];
+	int firstConnectedDevice = DEVICE_AUTO;
+
+	GetDefaultFolderPath(defaultFolderPath, saveFolder[SAVEFOLDER_SAVES].name);
+
+	int numSaveDevices;
+	const int * saveDevices = platform->getFileSystem()->getValidSaveDevices(numSaveDevices);
+
+	for (int i = 1; i < numSaveDevices; i++) {
+		int id = saveDevices[i];
+
+		if (id == DEVICE_SD_GCLOADER)
+			continue;
+
+		if (!tried[id]) {
+			tried[id] = true;
+			mounted[id] = ChangeInterface(id, SILENT);
+		}
+		if (!mounted[id])
+			continue;
+
+		if (firstConnectedDevice == DEVICE_AUTO)
+			firstConnectedDevice = id;
+
+		if (MakeFilePathForFolderPath(fullPath, id, defaultFolderPath) && DirExists(fullPath))
+			return id;
+	}
+
+	return firstConnectedDevice;
+}
+
+/****************************************************************************
+* AutoDetectDevices()
+* Determines and sets both the load and save device together in a single
+* pass over the hardware.
+****************************************************************************/
+void AutoDetectDevices()
+{
+	bool tried[DEVICE_LENGTH]   = { false };
+	bool mounted[DEVICE_LENGTH] = { false };
+	bool haveLoad = false, haveSave = false;
+
+	if (EmuSettings.loadDevice > DEVICE_AUTO && isValidLoadDevice(EmuSettings.loadDevice)) {
+		int id = EmuSettings.loadDevice;
+		if (!tried[id]) {
+			tried[id] = true;
+			mounted[id] = ChangeInterface(id, SILENT);
+		}
+		haveLoad = mounted[id];
+	}
+
+	if (EmuSettings.saveDevice > DEVICE_AUTO && isValidSaveDevice(EmuSettings.saveDevice)) {
+		int id = EmuSettings.saveDevice;
+		if (!tried[id]) {
+			tried[id] = true;
+			mounted[id] = ChangeInterface(id, SILENT);
+		}
+		haveSave = mounted[id];
+	}
+
+	if (!haveLoad)
+		EmuSettings.loadDevice = ScanForLoadDevice(tried, mounted);
+	if (!haveSave)
+		EmuSettings.saveDevice = ScanForSaveDevice(tried, mounted);
+
+	CancelAction();
+}
+
+/****************************************************************************
+* autoSaveMethod()
+* Save-only counterpart to AutoDetectDevices()
+****************************************************************************/
+int autoSaveMethod()
+{
+	bool tried[DEVICE_LENGTH]   = { false };
+	bool mounted[DEVICE_LENGTH] = { false };
+
+	if (EmuSettings.saveDevice > DEVICE_AUTO && isValidSaveDevice(EmuSettings.saveDevice)) {
+		int id = EmuSettings.saveDevice;
+		tried[id] = true;
+		mounted[id] = ChangeInterface(id, SILENT);
+		if (mounted[id])
+			return EmuSettings.saveDevice;
+	}
+
+	EmuSettings.saveDevice = ScanForSaveDevice(tried, mounted);
+	CancelAction();
+	return EmuSettings.saveDevice;
+}
+
+/****************************************************************************
+ * ResetBrowser()
+ * Clears the file browser memory, and allocates one initial entry
+ ***************************************************************************/
+void ResetBrowser()
+{
+	browser.numEntries = 0;
+	browser.selIndex = 0;
+	browser.pageIndex = 0;
+	browser.size = 0;
+}
+
+bool AddBrowserEntry()
+{
+	if(browser.size >= MAX_BROWSER_SIZE)
+	{
+		ErrorPrompt("Out of memory: too many files!");
+		return false; // out of space
+	}
+
+	memset(&(browserList[browser.size]), 0, sizeof(BROWSERENTRY)); // clear the new entry
+	browser.size++;
+	return true;
+}
+
+/****************************************************************************
+ * CleanupPath()
+ * Cleans up the filepath, removing double // and replacing \ with /
+ ***************************************************************************/
+static void CleanupPath(char * path)
+{
+	if(!path || path[0] == 0)
+		return;
+	
+	int pathlen = strlen(path);
+	int j = 0;
+	for(int i=0; i < pathlen && i < MAXPATHLEN; i++)
+	{
+		if(path[i] == '\\')
+			path[i] = '/';
+
+		if(j == 0 || !(path[j-1] == '/' && path[i] == '/'))
+			path[j++] = path[i];
+	}
+	path[j] = 0;
+}
+
+bool IsDeviceRoot(char * path)
+{
+	if(path == nullptr || path[0] == 0)
+		return false;
+
+	for(int device = 0; device < DEVICE_LENGTH; device++) {
+		const char * mountPath = platform->getFileSystem()->getMountPath(device);
+		if(mountPath != nullptr && mountPath[0] != 0 && strcmp(path, mountPath) == 0)
+			return true;
+	}
+	return false;
+}
+
+/****************************************************************************
+ * UpdateDirName()
+ * Update curent directory name for file browser
+ ***************************************************************************/
+int UpdateDirName()
+{
+	int size=0;
+	char * test;
+	char temp[1024];
+
+	/* nothing to do if there are no entries or the selected index is invalid */
+	if(browser.numEntries == 0 || browser.selIndex < 0 || browser.selIndex >= browser.numEntries) {
+		return 1;
+	}
+
+	/* current directory doesn't change */
+	if (strcmp(browserList[browser.selIndex].filename,".") == 0)
+	{
+		return 0;
+	}
+	/* go up to parent directory */
+	else if (strcmp(browserList[browser.selIndex].filename,"..") == 0)
+	{
+		// already at the top level
+		if(IsDeviceRoot(browser.dir))
+		{
+			browser.dir[0] = 0; // remove device - we are going to the device listing screen
+		}
+		else
+		{
+			/* determine last subdirectory namelength */
+			sprintf(temp,"%s",browser.dir);
+			test = strtok(temp,"/");
+			while (test != nullptr)
+			{
+				size = strlen(test);
+				test = strtok(nullptr,"/");
+			}
+	
+			/* remove last subdirectory name */
+			size = strlen(browser.dir) - size - 1;
+			strncpy(EmuSettings.lastFileLoaded, &browser.dir[size], strlen(browser.dir) - size - 1); //set as loaded file the previous dir
+			EmuSettings.lastFileLoaded[strlen(browser.dir) - size - 1] = 0;
+			browser.dir[size] = 0;
+		}
+
+		return 1;
+	}
+	/* Open a directory */
+	else
+	{
+		/* test new directory namelength */
+		if ((strlen(browser.dir)+1+strlen(browserList[browser.selIndex].filename)) < MAXPATHLEN)
+		{
+			/* update current directory name */
+			sprintf(browser.dir+strlen(browser.dir), "%s/", browserList[browser.selIndex].filename);
+			return 1;
+		}
+		else
+		{
+			ErrorPrompt("Directory name is too long!");
+			return -1;
+		}
+	}
+}
+
+void GetDefaultFolderPath(char *folderPath, const char *folderName) {
+    sprintf(folderPath, "%s/%s", APPFOLDER, folderName);
+}
+
+bool MakeFilePathForFolderPath(char *fullPath, int device, const char *folder) {
+	return platform->getFileSystem()->getPath(fullPath, MAXPATHLEN, device, folder);
+}
+
+//! Builds the full path of the file of this type. Returns false, with filepath emptied, when there
+//! is no such path - including when it would not fit. That is deliberate: a truncated path would
+//! name a different file, and a save written to it would overwrite whatever is there.
+bool MakeFilePath(char filepath[], int type, char * filename, int filenum)
+{
+	char file[MAXPATHLEN];
+	char temppath[MAXPATHLEN];
+
+	filepath[0] = 0; // callers that do not look at the result must not be left with an older path
+
+	if(type == FILE_ROM)
+	{
+		if(!FormatString(temppath, sizeof(temppath), "%s%s", browser.dir, browserList[browser.selIndex].filename))
+		{
+			ErrorPrompt("Maximum filepath length reached!");
+			return false;
+		}
+	}
+	else
+	{
+		if(EmuSettings.saveDevice == DEVICE_AUTO)
+			return false;
+
+		const char * folder;
+		bool nameFits;
+
+		switch(type)
+		{
+			case FILE_SRAM:
+			case FILE_STATE:
+			{
+				folder = EmuSettings.saveFolder;
+				const char * ext = (type == FILE_SRAM) ? "srm" : "frz";
+
+				// Slot 0 is the auto slot. A Snapshot's is "<name> Auto.frz". The Cartridge Save has the
+				// plain name the game is known by, "<name>.srm", and its other slots are its backups.
+				// -1 is the plain name, for either type.
+				if(filenum >= -1)
+				{
+					if(filenum == -1 || (filenum == 0 && type == FILE_SRAM))
+						nameFits = FormatString(file, sizeof(file), "%s.%s", filename, ext);
+					else if(filenum == 0)
+						nameFits = FormatString(file, sizeof(file), "%s Auto.%s", filename, ext);
+					else
+						nameFits = FormatString(file, sizeof(file), "%s %i.%s", filename, filenum, ext);
+				}
+				else
+				{
+					nameFits = FormatString(file, sizeof(file), "%s", filename);
+				}
+				break;
+			}
+			case FILE_CHEAT:
+				folder = EmuSettings.cheatFolder;
+				nameFits = FormatString(file, sizeof(file), "%s.cht", Memory.ROMFilename);
+				break;
+			default:
+				return false;
+		}
+
+		if(!nameFits || !platform->getFileSystem()->getPath(temppath, EmuSettings.saveDevice, folder, file))
+			return false;
+	}
+	CleanupPath(temppath); // cleanup path
+	return CopyString(filepath, MAXPATHLEN, temppath);
+}
+
+/****************************************************************************
+ * MigrateSaveFileNames
+ *
+ * Older versions named some files differently, depending on a setting that is
+ * gone. For the game that is loaded:
+ *  - a Snapshot's auto slot may be "<name>.frz": it becomes "<name> Auto.frz"
+ *    (with its screenshot)
+ *  - a Cartridge Save may be "<name> Auto.srm", and have been kept up to
+ *    date there, or beside a "<name>.srm" that was: the newer of the two is the
+ *    Cartridge Save, and an older one is kept as a backup
+ ***************************************************************************/
+static bool FileExists(const char * path)
+{
+	struct stat st;
+	return stat(path, &st) == 0;
+}
+
+static time_t FileTime(const char * path)
+{
+	struct stat st;
+
+	if(stat(path, &st) != 0)
+		return 0;
+	return st.st_mtime;
+}
+
+// "<name>.ext" -> "<name> Auto.ext"; ext is 3 characters
+static void AutoNamedPath(char * out, const char * plain)
+{
+	const int len = strlen(plain);
+
+	if(len < 4)
+	{
+		snprintf(out, MAXPATHLEN, "%s", plain);
+		return;
+	}
+	snprintf(out, MAXPATHLEN, "%.*s Auto%s", len-4, plain, &plain[len-4]);
+}
+
+// Replaces the 3 character extension of path
+static void ChangeExtension(char * out, const char * path, const char * ext)
+{
+	const int len = strlen(path);
+
+	if(len < 4)
+	{
+		snprintf(out, MAXPATHLEN, "%s", path);
+		return;
+	}
+	snprintf(out, MAXPATHLEN, "%.*s%s", len-3, path, ext);
+}
+
+// Renames a Cartridge Save, and the real time clock's file that goes along with it
+static bool MoveGameSave(const char * from, const char * to)
+{
+	char rtcFrom[MAXPATHLEN];
+	char rtcTo[MAXPATHLEN];
+
+	if(rename(from, to) != 0)
+		return false;
+
+	ChangeExtension(rtcFrom, from, "rtc");
+	ChangeExtension(rtcTo, to, "rtc");
+
+	if(FileExists(rtcFrom) && !FileExists(rtcTo))
+		rename(rtcFrom, rtcTo);
+	return true;
+}
+
+void MigrateSaveFileNames()
+{
+	char plain[MAXPATHLEN];
+	char autoNamed[MAXPATHLEN];
+	char png[MAXPATHLEN];
+	char autoPng[MAXPATHLEN];
+
+	// Snapshot
+	if(MakeFilePath(plain, FILE_STATE, Memory.ROMFilename, -1) && MakeFilePath(autoNamed, FILE_STATE, Memory.ROMFilename, 0))
+	{
+		if(FileExists(plain) && !FileExists(autoNamed))
+		{
+			rename(plain, autoNamed);
+			ChangeExtension(png, plain, "png");
+			ChangeExtension(autoPng, autoNamed, "png");
+
+			if(FileExists(png) && !FileExists(autoPng))
+				rename(png, autoPng);
+		}
+	}
+
+	// Cartridge Save
+	if(!MakeFilePath(plain, FILE_SRAM, Memory.ROMFilename, 0))
+		return;
+
+	AutoNamedPath(autoNamed, plain);
+
+	if(!FileExists(autoNamed))
+		return;
+
+	if(!FileExists(plain))
+	{
+		MoveGameSave(autoNamed, plain);
+		return;
+	}
+
+	// Both: the newer one is the Cartridge Save, and the older becomes a backup in the first free slot
+	const bool autoIsNewer = FileTime(autoNamed) > FileTime(plain);
+	char backup[MAXPATHLEN];
+
+	for(int slot = 1; slot < MAX_SAVES; slot++)
+	{
+		if(!MakeFilePath(backup, FILE_SRAM, Memory.ROMFilename, slot) || FileExists(backup))
+			continue;
+
+		if(autoIsNewer)
+		{
+			if(MoveGameSave(plain, backup))
+				MoveGameSave(autoNamed, plain);
+		}
+		else
+		{
+			MoveGameSave(autoNamed, backup);
+		}
+		return;
+	}
+}
+
+/****************************************************************************
+ * FileSortCallback
+ *
+ * Quick sort callback to sort file entries with the following order:
+ *   .
+ *   ..
+ *   <dirs>
+ *   <files>
+ ***************************************************************************/
+int FileSortCallback(const void *f1, const void *f2)
+{
+	/* Special case for implicit directories */
+	if(((BROWSERENTRY *)f1)->filename[0] == '.' || ((BROWSERENTRY *)f2)->filename[0] == '.')
+	{
+		if(strcmp(((BROWSERENTRY *)f1)->filename, ".") == 0) { return -1; }
+		if(strcmp(((BROWSERENTRY *)f2)->filename, ".") == 0) { return 1; }
+		if(strcmp(((BROWSERENTRY *)f1)->filename, "..") == 0) { return -1; }
+		if(strcmp(((BROWSERENTRY *)f2)->filename, "..") == 0) { return 1; }
+	}
+
+	/* If one is a file and one is a directory the directory is first. */
+	if(((BROWSERENTRY *)f1)->isdir && !(((BROWSERENTRY *)f2)->isdir)) return -1;
+	if(!(((BROWSERENTRY *)f1)->isdir) && ((BROWSERENTRY *)f2)->isdir) return 1;
+
+	return strcasecmp(((BROWSERENTRY *)f1)->filename, ((BROWSERENTRY *)f2)->filename);
+}
+
+/****************************************************************************
+ * IsValidROM
+ *
+ * Checks if the specified file is a valid ROM
+ * For now we will just check the file extension and file size
+ * If the file is a zip, we will check the file extension / file size of the
+ * first file inside
+ ***************************************************************************/
+static bool IsValidROM()
+{
+	if (strlen(browserList[browser.selIndex].filename) > 4)
+	{
+		char * p = strrchr(browserList[browser.selIndex].filename, '.');
+
+		if (p != nullptr)
+		{
+			char * zippedFilename = nullptr;
+			
+			if(strcasecmp(p, ".zip") == 0 && !inSz)
+			{
+				// we need to check the file extension of the first file in the archive
+				zippedFilename = GetFirstZipFilename ();
+
+				if(!zippedFilename)
+					return false;
+
+				if(strlen(zippedFilename) > 4)
+					p = strrchr(zippedFilename, '.');
+				else
+					p = nullptr;
+			}
+
+			if(p != nullptr)
+			{
+				if (strcasecmp(p, ".bs") == 0 ||
+					strcasecmp(p, ".fig") == 0 ||
+					strcasecmp(p, ".sfc") == 0 ||
+					strcasecmp(p, ".smc") == 0 ||
+					strcasecmp(p, ".swc") == 0)
+				{
+					if(zippedFilename) free(zippedFilename);
+					return true;
+				}
+			}
+			if(zippedFilename) free(zippedFilename);
+		}
+	}
+	ErrorPrompt("Unknown file type!");
+	return false;
+}
+
+/****************************************************************************
+ * IsSz
+ *
+ * Checks if the specified file is a 7z
+ ***************************************************************************/
+bool IsSz()
+{
+	if (strlen(browserList[browser.selIndex].filename) > 4)
+	{
+		char * p = strrchr(browserList[browser.selIndex].filename, '.');
+
+		if (p != nullptr)
+			if(strcasecmp(p, ".7z") == 0)
+				return true;
+	}
+	return false;
+}
+
+/****************************************************************************
+ * StripExt
+ *
+ * Copies a filename to returnstring without its extension
+ ***************************************************************************/
+void StripExt(char* returnstring, const char * inputstring)
+{
+	if(inputstring == nullptr)
+	{
+		returnstring[0] = 0;
+		return;
+	}
+
+	size_t len = strlen(inputstring);
+
+	if(len >= 4)
+	{
+		const char * loc_dot = strrchr(inputstring, '.');
+		if(loc_dot != nullptr)
+			len = loc_dot - inputstring; // strip file extension
+	}
+
+	memcpy(returnstring, inputstring, len);
+	returnstring[len] = 0;
+}
+
+/****************************************************************************
+ * BrowserLoadSz
+ *
+ * Opens the selected 7z file, and parses a listing of the files within
+ ***************************************************************************/
+int BrowserLoadSz()
+{
+	// browser.dir is the archive's path with a trailing '/': drop that to get the archive itself
+	size_t dirLen = strlen(browser.dir);
+	if(dirLen > 0)
+		dirLen--;
+
+	const char * slash = nullptr;
+	const char * dot = nullptr;
+
+	if(dirLen < sizeof(szpath))
+	{
+		memcpy(szpath, browser.dir, dirLen);
+		szpath[dirLen] = 0;
+		slash = strrchr(szpath, '/');
+		dot = strrchr(szpath, '.');
+	}
+
+	// szname is the archive's name without its extension
+	const size_t nameLen = (slash && dot && dot > slash) ? (size_t)(dot - (slash + 1)) : sizeof(szname);
+
+	if(nameLen >= sizeof(szname))
+	{
+		szpath[0] = 0;
+		szname[0] = 0;
+		ErrorPrompt("Error opening archive!");
+		return 0;
+	}
+
+	memcpy(szname, slash + 1, nameLen);
+	szname[nameLen] = 0;
+
+	int szfiles = SzParse(szpath);
+	if(szfiles)
+	{
+		browser.numEntries = szfiles;
+		inSz = true;
+	}
+
+	return szfiles;
+}
+
+int ROMLoader()
+{
+	size_t size;
+	char filepath[1024];
+
+	memset(Memory.NSRTHeader, 0, sizeof(Memory.NSRTHeader));
+	Memory.HeaderCount = 0;
+
+	if(!inSz)
+	{
+		if(!MakeFilePath(filepath, FILE_ROM))
+			return 0;
+
+		size = LoadFile ((char *)Memory.ROM, filepath, 0, Memory.MAX_ROM_SIZE, NOTSILENT);
+	}
+	else
+	{
+		size = LoadSzFile(szpath, (unsigned char *)Memory.ROM);
+
+		if(size <= 0)
+		{
+			browser.selIndex = 0;
+			BrowserChangeFolder();
+		}
+	}
+
+	if(size <= 0)
+		return 0;
+
+	SNESROMSize = Memory.HeaderRemove(size, Memory.ROM);
+
+	if(SNESROMSize <= 0)
+	{
+		ErrorPrompt("Unsupported file size!");
+		return 0;
+	}
+
+	bsxBiosLoadFailed = false;
+
+	if(isBSX()) {
+		if(!platform->getFileSystem()->getPath(filepath, EmuSettings.loadDevice, APPFOLDER, "BS-X.bin")
+			|| LoadFile ((char *)Memory.BIOSROM, filepath, 0, 0x100000, SILENT) == 0) {
+			bsxBiosLoadFailed = true;
+		}
+	}
+
+	return SNESROMSize;
+}
+
+/****************************************************************************
+ * BrowserLoadFile
+ *
+ * Loads the selected ROM
+ ***************************************************************************/
+int BrowserLoadFile()
+{
+	int loaded = 0;
+	int device;
+
+	if(!FindDevice(browser.dir, &device))
+	{
+		ErrorPrompt("Device not found!");
+		return 0;
+	}
+
+	// check that this is a valid ROM
+	if(!IsValidROM())
+		goto done;
+
+	// store the filename (w/o ext) - used for Cartridge Save/Snapshot naming
+	StripExt(Memory.ROMFilename, browserList[browser.selIndex].filename);
+	snprintf(EmuSettings.lastFileLoaded, MAXPATHLEN, "%s", browserList[browser.selIndex].filename);
+	strncpy(Memory.ROMFilePath, browser.dir, PATH_MAX);
+	Memory.ROMFilePath[PATH_MAX] = 0;
+
+	SNESROMSize = 0;
+	S9xDeleteCheats();
+	Memory.LoadROM("ROM");
+
+	if (SNESROMSize != 0)
+	{
+		platform->getAudio()->getEmulatorAudio()->resetAudio();
+		ClearPlayingFrom(); // a new game does not start from the last game's snapshot
+
+		AutoLoadOnGameOpen();
+
+		ResetBrowser();
+		loaded = 1;
+	}
+done:
+	CancelAction();
+	return loaded;
+}
+
+void CloseSzIfOpen() {
+	if(inSz) {
+		inSz = false;
+		SzClose();
+	}
+}
+
+/****************************************************************************
+ * DeviceIcon
+ ***************************************************************************/
+static int DeviceIcon(int deviceId)
+{
+	switch(deviceId)
+	{
+		case DEVICE_SD:
+		case DEVICE_SD_SLOTA:
+		case DEVICE_SD_SLOTB:
+		case DEVICE_SD_PORT2:
+		case DEVICE_SD_GCLOADER:
+			return ICON_SD;
+		case DEVICE_USB:
+		case DEVICE_USB2:
+		case DEVICE_USB3:
+			return ICON_USB;
+		case DEVICE_DVD: return ICON_DVD;
+		case DEVICE_SMB: return ICON_SMB;
+		default:         return ICON_NONE;
+	}
+}
+
+/****************************************************************************
+ * AddDeviceListing
+ *
+ * Builds the root "choose a device" listing shown when there's no current
+ * directory. Sourced from the platform's FileSystemDriver.
+ ***************************************************************************/
+int AddDeviceListing()
+{
+	StorageDevice devices[MAX_STORAGE_DEVICES];
+	int count = platform->getFileSystem()->enumerateStorageDevices(devices);
+	int i = 0;
+
+	for(int d = 0; d < count; d++)
+	{
+		StorageDevice & dev = devices[d];
+
+		if(!dev.alwaysListed && !platform->getFileSystem()->isDevicePresent(dev.id))
+			continue;
+
+		AddBrowserEntry();
+		sprintf(browserList[i].filename, "%s", dev.prefix);
+		sprintf(browserList[i].displayname, "%s", dev.name);
+		browserList[i].length = 0;
+		browserList[i].isdir = 1;
+		browserList[i].icon = DeviceIcon(dev.id);
+		i++;
+	}
+
+	return i;
+}
+
+/****************************************************************************
+ * BrowserChangeFolder
+ *
+ * Update current directory and set new entry list if directory has changed
+ ***************************************************************************/
+int BrowserChangeFolder()
+{
+	if(inSz && browser.selIndex == 0) // inside a 7z, requesting to leave
+	{
+		CloseSzIfOpen();
+	}
+
+	if(!UpdateDirName()) {
+		CloseSzIfOpen();
+		return -1;
+	}
+
+	HaltParseThread();
+	CleanupPath(browser.dir);
+	ResetBrowser();
+
+	if(browser.dir[0] != 0)
+	{
+		// skip if device is no longer mounted
+		if(!ChangeInterface(browser.dir, NOTSILENT)) {
+			CloseSzIfOpen();
+			browser.numEntries = 0;
+		}
+		else {
+			if(strstr(browser.dir, ".7z"))
+			{
+				BrowserLoadSz();
+			}
+			else
+			{
+				// Block until the whole folder is read when we need to jump to a 
+				// specific remembered file
+				ParseDirectory(selectLoadedFile != 0, true);
+			}
+			FindAndSelectLastLoadedFile();
+		}
+	}
+
+	if(browser.numEntries == 0)
+	{
+		browser.dir[0] = 0;
+		browser.numEntries += AddDeviceListing();
+	}
+	
+	if(browser.dir[0] == 0)
+	{
+		EmuSettings.loadFolder[0] = 0;
+		EmuSettings.loadDevice = DEVICE_AUTO;
+	}
+	else
+	{
+		char * path = StripDevice(browser.dir);
+		if(path != nullptr)
+			strcpy(EmuSettings.loadFolder, path);
+		FindDevice(browser.dir, &EmuSettings.loadDevice);
+	}
+
+	return browser.numEntries;
+}
+
+/****************************************************************************
+ * OpenROM
+ * Displays a list of ROMS on load device
+ ***************************************************************************/
+int OpenGameList()
+{
+	int device = EmuSettings.loadDevice;
+
+	// change current dir to roms directory
+	if(device > 0 && ChangeInterface(device, NOTSILENT)
+		&& platform->getFileSystem()->getPath(browser.dir, device, EmuSettings.loadFolder, "")) {
+		CleanupPath(browser.dir);
+
+		if(strlen(EmuSettings.loadFolder) > 0) {
+			DIR *dir = opendir(browser.dir);
+
+			if(dir == nullptr) {
+				if(!platform->getFileSystem()->getPath(browser.dir, device, ""))
+					browser.dir[0] = 0;
+			}
+			else {
+				closedir(dir);
+			}
+		}
+	}
+	else {
+		browser.dir[0] = 0;
+		browser.numEntries = 0;
+	}
+	
+	BrowserChangeFolder();
+	return browser.numEntries;
+}
+
+bool AutoloadGame(char* filepath, char* filename) {
+	ResetBrowser();
+
+	selectLoadedFile = 1;
+	const char * folder = StripDevice(filepath);
+	strncpy(EmuSettings.loadFolder, folder ? folder : "", sizeof(EmuSettings.loadFolder) - 1);
+	EmuSettings.loadFolder[sizeof(EmuSettings.loadFolder) - 1] = 0;
+	OpenGameList();
+
+	for(int i = 0; i < browser.numEntries; i++) {
+		// Skip it
+		if (strcmp(browserList[i].filename, ".") == 0 || strcmp(browserList[i].filename, "..") == 0) {
+			continue;
+		}
+		if(strcasestr(browserList[i].filename, filename) != nullptr) {
+			browser.selIndex = i;
+			if(IsSz()) {
+				BrowserLoadSz();
+				browser.selIndex = 1;
+			}
+			break;
+		}
+	}
+	if(BrowserLoadFile() > 0) {
+		return true;
+	}
+	return false;
+}

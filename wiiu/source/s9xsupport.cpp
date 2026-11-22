@@ -1,0 +1,312 @@
+/****************************************************************************
+ * Snes9x GX
+ *
+ * softdev July 2006
+ * crunchy2 May 2007
+ * Michniewski 2008
+ * Daryl Borth 2008-2026
+ *
+ * s9xsupport.cpp
+ *
+ * Snes9x support functions
+ ***************************************************************************/
+
+#include "snes9xgx.h"
+#include "video.h"
+#include "input.h"
+#include "drivers/Platform.h"
+#include "drivers/Time.h"
+#include "snes9x/snes9x.h"
+#include "snes9x/memmap.h"
+#include "snes9x/display.h"
+#include "snes9x/apu/apu.h"
+#include "snes9x/controls.h"
+
+#define MAX_MESSAGE_LEN (36 * 3)
+
+static int timerstyle = 0;
+static Ticks prev;
+static Ticks now;
+static int behindUs = 0; // microseconds emulation is behind real time, carried between frames (timerstyle 1)
+
+/****************************************************************************
+ * setFrameTimerMethod()
+ * change frametimer method depending on whether ROM is NTSC or PAL
+ * timerstyle: 0=NTSC vblank, 1=PAL int timer
+ ***************************************************************************/
+
+void setFrameTimerMethod()
+{
+	bool vmode_60hz = platform->getVideo()->getRefreshRate() == 60;
+
+	if ( Settings.PAL ) {
+		if(vmode_60hz)
+			timerstyle = 1;
+		else
+			timerstyle = 0;
+	} else {
+		if(vmode_60hz)
+			timerstyle = 0;
+		else
+			timerstyle = 1;
+	}
+	return;
+}
+
+void InitializeSnes9x() {
+	S9xUnmapAllControls ();
+	SetDefaultButtonMap ();
+
+	// Allocate SNES Memory
+	if (!Memory.Init ())
+		ExitApp();
+
+	// Allocate APU
+	if (!S9xInitAPU ())
+		ExitApp();
+
+	S9xInitSound (64, 0); // Initialise Sound System
+
+	// Initialise Graphics
+	setGFX ();
+	if (!S9xGraphicsInit ())
+		ExitApp();
+
+	AllocGfxMem();
+}
+
+/*** Miscellaneous Functions ***/
+void S9xExit()
+{
+	ExitApp();
+}
+
+void S9xMessage(int /*type */, int /*number */, const char *message)
+{
+	static char buffer[MAX_MESSAGE_LEN + 1];
+	snprintf(buffer, MAX_MESSAGE_LEN, "%s", message);
+	S9xSetInfoString(buffer);
+}
+
+void S9xAutoSaveSRAM()
+{
+
+}
+
+/*** Sound based functions ***/
+void S9xToggleSoundChannel(int c)
+{
+    static int sound_switch = 255;
+
+    if (c == 8)
+        sound_switch = 255;
+    else
+        sound_switch ^= 1 << c;
+
+    S9xSetSoundControl (sound_switch);
+}
+
+/****************************************************************************
+ * OpenSoundDevice
+ *
+ * Main initialisation for Wii sound system
+ ***************************************************************************/
+bool8 S9xOpenSoundDevice(void)
+{
+	return TRUE;
+}
+
+/* eke-eke */
+void S9xInitSync()
+{
+	platform->getVideo()->setFrameTimer(0);
+	prev = SystemTime::now();
+	behindUs = 0;
+}
+
+/*** Synchronisation ***/
+
+/*
+ * Decide whether to render or skip the current frame.
+ *
+ * behindSchedule is true when emulation is running behind the target rate and
+ * a frame may be dropped to catch up. Frames are only ever skipped up to the
+ * configured limit so that the display cannot stall indefinitely.
+ */
+static void S9xChooseFrameToRender(bool behindSchedule, int32 skipFrms)
+{
+	if (behindSchedule && (static_cast<int32>(IPPU.SkippedFrames) < skipFrms))
+	{
+		IPPU.SkippedFrames++;
+		IPPU.RenderThisFrame = FALSE;
+	}
+	else
+	{
+		IPPU.SkippedFrames = 0;
+		IPPU.RenderThisFrame = TRUE;
+	}
+}
+
+void S9xSyncSpeed () {
+	const int32 skipFrms = Settings.TurboMode
+		? (int32) Settings.TurboSkipFrames
+		: (int32) Settings.SkipFrames;
+
+	if (timerstyle == 0) /* use Wii vertical sync (VSYNC) with NTSC roms */
+	{
+		// Capture current VBlank ticks
+		// update_video() acts as our hardware VBlank throttle.
+		int32 pendingFrames = platform->getVideo()->getFrameTimer();
+
+		bool behindSchedule = (pendingFrames > 1);
+
+		if (pendingFrames > skipFrms)
+		{
+			platform->getVideo()->limitFrameTimer(skipFrms);
+			pendingFrames = skipFrms;
+		}
+
+		S9xChooseFrameToRender(behindSchedule, skipFrms);
+
+		// Only consume a VBlank if one actually occurred to prevent underflow.
+		// If pendingFrames == 0, we are perfectly pipelined (1 frame ahead).
+		if (!Settings.TurboMode && pendingFrames > 0)
+			platform->getVideo()->consumeFrameTick();
+	}
+	else /* use internal timer for PAL roms (or TV/ROM mismatches) */
+	{
+		now = SystemTime::now();
+
+		if (Settings.TurboMode)
+		{
+			/* no real-time limiting in turbo */
+			behindUs = 0;
+			prev = now;
+			S9xChooseFrameToRender(true, skipFrms);
+			return;
+		}
+
+		const int allowed = (int) Settings.FrameTime;
+
+		/* Lateness carries over, so it is paid back exactly once */
+		behindUs += (int) SystemTime::diffMicrosecs(prev, now) - allowed;
+		prev = now;
+
+		if (behindUs > 4 * allowed)
+			behindUs = 0; /* hopelessly behind: resync, don't skip for ages */
+
+		if (behindUs < 0)
+		{
+			/*** Ahead - so hold up until the frame's time budget elapses ***/
+			const uint32_t wait = (uint32_t) -behindUs;
+			while (SystemTime::diffMicrosecs(prev, now) < wait)
+			{
+				if ((wait - SystemTime::diffMicrosecs(prev, now)) > 50)
+					usleep(50); // The GPU draws concurrently during this CPU sleep!
+				now = SystemTime::now();
+			}
+			prev = now;
+			behindUs = 0;
+
+			IPPU.RenderThisFrame = TRUE;
+			IPPU.SkippedFrames = 0;
+		}
+		else
+		{
+			/* A whole frame behind: consider dropping the next frame's render */
+			S9xChooseFrameToRender(behindUs >= allowed, skipFrms);
+		}
+	}
+}
+
+/*** Video / Display related functions ***/
+bool8 S9xInitUpdate()
+{
+	return (TRUE);
+}
+
+bool8 S9xDeinitUpdate(int width, int height)
+{
+	platform->getVideo()->getEmulatorVideo()->presentFrame(width, height);
+	return (TRUE);
+}
+
+bool8 S9xContinueUpdate(int, int)
+{
+	return (TRUE);
+}
+
+/*** Input functions ***/
+void S9xHandlePortCommand(s9xcommand_t, int16, int16)
+{
+	return;
+}
+
+bool S9xPollButton(uint32, bool *)
+{
+	ReportButtons();
+	return 0;
+}
+
+bool S9xPollAxis(uint32, int16 *)
+{
+	ReportButtons();
+	return 0;
+}
+
+bool S9xPollPointer(uint32, int16 *, int16 *)
+{
+	ReportButtons();
+	return 0;
+}
+
+/****************************************************************************
+ * Note that these are DUMMY functions, and only allow Snes9x to
+ * compile. Where possible, they will return an error signal.
+ ***************************************************************************/
+
+const char * S9xGetDirectory(enum s9x_getdirtype)
+{
+	ExitApp();
+	return nullptr;
+}
+
+const char * S9xGetFilename(const char *, enum s9x_getdirtype)
+{
+	ExitApp();
+	return nullptr;
+}
+
+const char * S9xGetFilenameInc(const char *, enum s9x_getdirtype)
+{
+	ExitApp();
+	return nullptr;
+}
+
+const char * S9xBasename(const char *name)
+{
+	ExitApp();
+	return name;
+}
+
+const char * S9xStringInput (const char * s)
+{
+	ExitApp();
+	return s;
+}
+
+void _splitpath(char const *, char *, char *, char *, char *)
+{
+	ExitApp();
+}
+
+void _makepath(char *, const char *, const char *, const char *, const char *)
+{
+	ExitApp();
+}
+
+int access(const char *, int)
+{
+	ExitApp();
+	return 1;
+}

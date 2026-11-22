@@ -1,0 +1,221 @@
+/****************************************************************************
+ * Snes9x GX
+ *
+ * softdev July 2006
+ * crunchy2 May 2007-July 2007
+ * Michniewski 2008
+ * Daryl Borth 2008-2026
+ *
+ * snes9xgx.cpp
+ *
+ * This file controls overall program flow. Most things start and end here!
+ ***************************************************************************/
+
+#include "snes9xgx.h"
+#include "s9xsupport.h"
+#include "video.h"
+#include "menu/menu.h"
+#include "sram.h"
+#include "freeze.h"
+#include "savemode.h"
+#include "preferences.h"
+#include "fileop.h"
+#include "filebrowser.h"
+#include "input.h"
+#include "memmanager.h"
+#include "font_ttf.h"
+#include "libgui/Gui.h"
+
+#include "snes9x/snes9x.h"
+#include "snes9x/fxemu.h"
+#include "snes9x/memmap.h"
+#include "snes9x/apu/apu.h"
+
+#include "drivers/Platform.h"
+#include "drivers/Thread.h"
+#if defined(HW_RVL) || defined(HW_DOL)
+#include "drivers/ogc/videofilters.h"
+#endif
+
+#ifdef HW_DOL
+#include "drivers/ogc/gamecube/GameCubePlatform.h"
+static GameCubePlatform platformInstance;
+#elif HW_RVL
+#include "drivers/ogc/wii/WiiPlatform.h"
+static WiiPlatform platformInstance;
+#elif __WIIU__
+#include "drivers/wut/WutPlatform.h"
+static WutPlatform platformInstance;
+#endif
+Platform* platform = &platformInstance;
+
+AppRequest appRequest = AppRequest::NONE;
+char appPath[1024] = { 0 };
+static bool autoboot = false;
+static void SaveAppDataBeforeRelease();
+
+#ifdef HW_RVL
+int main(int argc, char *argv[]) // the Wii's loader passes the path and the game to start
+#else
+int main(int, char *[])
+#endif
+{
+	PlatformConfig platformConfig;
+	platformConfig.canvasWidth = 640;
+	platformConfig.canvasHeight = 480;
+#ifdef __WIIU__
+	platformConfig.assetScaleX = 3.0f;
+	platformConfig.assetScaleY = 2.25f;
+#endif
+	platform->init(platformConfig);
+	platform->setSaveHandler(SaveAppDataBeforeRelease);
+
+	InitFileOpThreads();
+	InitMemManager();
+
+	fontSystem = new GuiTextRenderer(font_ttf, font_ttf_size, platform->getVideo()->getGlyphRenderer(), platform->getVideo()->getUIScale());
+
+	DefaultSettings();
+	ApplySettings();
+	InitializeSnes9x(); // ensure Snes9x memory is in MEM1 for Wii
+	platform->getVideo()->startMenuVideo();
+	S9xInitSync(); // initialize frame sync
+	InitGUIThreads();
+
+	savebuffer = (uint8_t *)extmem_malloc(SAVEBUFFERSIZE);
+
+	#ifdef HW_RVL
+	// store path app was loaded from
+	if(argc > 0 && argv[0] != nullptr)
+		CreateAppPath(argv[0]);
+
+	if(argc > 2 && argv[1] != nullptr && argv[2] != nullptr) {
+		LoadPrefs();
+		if(strncmp(argv[1], "sd", 2) == 0)
+		{
+			EmuSettings.saveDevice = DEVICE_SD;
+			EmuSettings.loadDevice = DEVICE_SD;
+		}
+		else if(strncmp(argv[1], "usb", 3) == 0)
+		{
+			EmuSettings.saveDevice = DEVICE_USB;
+			EmuSettings.loadDevice = DEVICE_USB;
+		}
+		SavePrefs();
+
+		EmuSettings.autoloadGame = AutoloadGame(argv[1], argv[2]);
+		autoboot = EmuSettings.autoloadGame;
+	}
+#endif
+
+	while (!platform->shouldExit()) // main loop
+	{
+		if(!autoboot) {
+			platform->getAudio()->startMenuAudio();
+
+			SetStickPointerEnabled(true); // In the menu the left stick moves the pointer; in the game it does not
+
+			if(SNESROMSize == 0)
+				MainMenu(MENU_GAMESELECTION);
+			else
+				MainMenu(MENU_GAME);
+
+			SetStickPointerEnabled(false);
+		}
+
+		platform->getAudio()->stopMenuAudio();
+
+		if(platform->shouldExit()) {
+			break;
+		}
+
+		WaitForBackgroundTasks(15000);
+
+		SwitchMemoryModeGame();
+
+		autoboot = false;		
+		appRequest = AppRequest::NONE;
+		MarkLiveStateChanged();
+		platform->getAudio()->startEmulatorAudio();
+
+		Settings.Mute = EmuSettings.muteAudio;
+		Settings.SupportHiRes = (EmuSettings.hiResolution == 1);
+		Settings.MaxSpriteTilesPerLine = (EmuSettings.spriteLimit ? 34 : 128);
+		Settings.SkipFrames = (EmuSettings.frameSkip ? AUTO_FRAMERATE : 0);
+		Settings.AutoDisplayMessages = (Settings.DisplayFrameRate || Settings.DisplayTime ? true : false);
+		Settings.MultiPlayer5Master = (EmuSettings.controller == CTRL_PAD4 ? true : false);
+		Settings.SuperScopeMaster = (EmuSettings.controller == CTRL_SCOPE ? true : false);
+		Settings.MouseMaster = (EmuSettings.controller == CTRL_MOUSE || EmuSettings.controller == CTRL_MOUSE_PORT2 || EmuSettings.controller == CTRL_MOUSE_BOTH_PORTS);
+		Settings.JustifierMaster = (EmuSettings.controller == CTRL_JUST ? true : false);
+		SetControllers();
+
+		platform->getVideo()->setFrameTimer(0);
+		setFrameTimerMethod(); // set frametimer method every time a ROM is loaded
+
+		platform->getVideo()->getEmulatorVideo()->forceVideoUpdate();
+#if defined(HW_RVL) || defined(HW_DOL)
+		SelectFilterMethod(EmuSettings.videoUpscalingFilter); // Initialize / Re-evaluate active filter
+#endif
+
+		while (appRequest == AppRequest::NONE) // emulation loop
+		{
+			SystemEvent event = platform->getSystemEvent(); // poll exactly once per iteration
+			if(platform->isExiting() || event == SystemEvent::ShutdownRequested)
+				break;
+
+			S9xMainLoop();
+			ReportButtons();
+			ClearButtonsReported();
+
+			if(event == SystemEvent::ResetRequested)
+				S9xSoftReset (); // reset game
+		} // emulation loop
+
+		platform->getAudio()->stopEmulatorAudio();
+		SwitchMemoryModeMenu();
+		TakeScreenshot();
+		MarkScreenshotCurrent();
+
+		// Left for the menu (not for good, which ExitApp() saves for): the first time, there is no Auto Snapshot yet
+		if(appRequest == AppRequest::MENU && !platform->isExiting())
+			AutoSnapshotOnFirstMenuReturn();
+
+		platform->getVideo()->startMenuVideo();
+	} // main loop
+	ExitApp();
+}
+
+// Everything that has to reach storage before we can go away
+// screenshotIsCurrent: the game isn't still running, so its last screenshot is up to date
+static void SaveAppData(bool screenshotIsCurrent)
+{
+	SavePrefsAndWait(); // exit is the one time we wait for settings to reach the device
+
+	AutoSaveOnQuit(screenshotIsCurrent);
+}
+
+// Wii U: the OS is about to take the foreground away (HOME menu, power
+// button, closing the app) - the last chance to write to storage.
+static void SaveAppDataBeforeRelease()
+{
+	if (platform->isExiting())
+		return; // ExitApp() has the foreground and saves for itself
+
+	SaveAppData(false); // the game may still be running
+}
+
+void ExitApp()
+{
+	platform->getInput()->haltRumble();
+
+	// Closed by the OS from the background: SaveAppDataBeforeRelease() has saved, and we can't write any more
+	if (platform->getStatus() != Status::Closed)
+		SaveAppData(true);
+
+	// Generic safety net: stop and join every Thread still outstanding
+	// (device/parse/worker) before any driver it might touch gets torn
+	// down inside requestExit()/shutdown().
+	Thread::JoinAll();
+
+	platform->requestExit(EmuSettings.exitAction, autoboot);
+}

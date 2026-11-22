@@ -1,0 +1,81 @@
+/****************************************************************************
+ * Snes9x GX
+ *
+ * Daryl Borth 2008-2026
+ *
+ * filelist.h
+ *
+ * Contains a list of all of the files stored in the images/, fonts/, and
+ * sounds/ folders
+ ***************************************************************************/
+
+#ifndef _FILELIST_H_
+#define _FILELIST_H_
+
+// Fonts
+#include "font_ttf.h"
+
+// Languages
+#include "jp_mo.h"
+#include "de_mo.h"
+#include "fr_mo.h"
+#include "es_mo.h"
+#include "it_mo.h"
+#include "nl_mo.h"
+#include "zh_mo.h"
+#include "ko_mo.h"
+#include "pt_mo.h"
+#include "pt_br_mo.h"
+#include "ca_mo.h"
+#include "tr_mo.h"
+#include "sv_mo.h"
+
+// Sounds
+#ifndef HW_DOL
+// exclude all sounds on GameCube
+#include "bg_music_ogg.h"
+#include "enter_ogg.h"
+#include "exit_ogg.h"
+#include "button_over_pcm.h"
+#include "button_click_pcm.h"
+#endif
+
+// Graphics
+#include "logo_png.h"
+#include "logo_over_png.h"
+#include "icon_settings_png.h"
+#include "icon_home_png.h"
+#include "icon_credits_png.h"
+#include "icon_game_cheats_png.h"
+#include "icon_game_save_png.h"
+#include "icon_game_reset_png.h"
+#include "icon_settings_file_png.h"
+#include "icon_settings_mappings_png.h"
+#include "icon_settings_menu_png.h"
+#include "icon_settings_network_png.h"
+#include "icon_settings_video_png.h"
+#include "icon_settings_emulation_png.h"
+#include "icon_settings_screenshot_png.h"
+#include "icon_folder_png.h"
+#include "icon_sd_png.h"
+#include "icon_usb_png.h"
+#include "icon_dvd_png.h"
+#include "icon_smb_png.h"
+#include "controller_gamepad_png.h"
+#include "controller_wiimote_png.h"
+#include "controller_nunchuk_png.h"
+#include "controller_classic_png.h"
+#include "controller_wiiupro_png.h"
+#include "controller_gamecube_png.h"
+#include "controller_ds4_png.h"
+#include "controller_usb_png.h"
+#include "controller_xbox360_png.h"
+#include "controller_charging_png.h"
+#include "controller_replug_png.h"
+#include "default_preview_png.h"
+#include "player1_point_png.h"
+#include "player2_point_png.h"
+#include "player3_point_png.h"
+#include "player4_point_png.h"
+
+#endif

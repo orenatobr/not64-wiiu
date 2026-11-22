@@ -1,0 +1,150 @@
+#---------------------------------------------------------------------------------
+# not64 for Wii U (native, wut / Aroma)
+#
+#   make -f Makefile.wiiu          build executables/not64-wiiu.wuhb
+#   make -f Makefile.wiiu test     run the host-side unit tests
+#   make -f Makefile.wiiu clean
+#
+# Objects keep their directory under $(BUILD) because the emulator core has
+# several files with the same name (r4300/tlb.c and gc_memory/tlb.c, ...).
+#---------------------------------------------------------------------------------
+.SUFFIXES:
+
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>devkitPro")
+endif
+
+include $(DEVKITPRO)/wut/share/wut_rules
+
+TARGET		:=	not64-wiiu
+BUILD		:=	build_wiiu
+EXECUTABLES	:=	executables
+
+APP_NAME	:=	not64
+APP_SHORTNAME	:=	not64
+APP_AUTHOR	:=	extremscorner, Wii64 team, dborth (UI), orenatobr (Wii U port)
+APP_ICON	:=	wiiu/meta/icon.png
+APP_TV_SPLASH	:=	wiiu/meta/tv_splash.png
+APP_DRC_SPLASH	:=	wiiu/meta/drc_splash.png
+
+#---------------------------------------------------------------------------------
+# Sources
+#---------------------------------------------------------------------------------
+APP_DIRS	:=	wiiu/source wiiu/source/menu wiiu/source/libgui wiiu/source/widgets \
+			wiiu/source/utils wiiu/source/utils/sz \
+			wiiu/source/drivers wiiu/source/drivers/wut wiiu/source/drivers/wut/shaders
+
+DATA_DIRS	:=	wiiu/data/images_hd wiiu/data/sounds wiiu/data/fonts wiiu/data/lang
+
+CFILES		:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.c))
+CPPFILES	:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.cpp))
+
+PNGS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.png))
+OGGS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.ogg))
+PCMS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.pcm))
+TTFS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.ttf))
+LANGS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.lang))
+
+# binary assets become objects named <file>.<ext>.o with a <file>_<ext>.h header
+BINDIR		:=	$(BUILD)/data
+BINOBJS		:=	$(addprefix $(BINDIR)/,$(addsuffix .o,$(notdir $(PNGS) $(OGGS) $(PCMS) $(TTFS))) \
+			$(patsubst %.lang,%.mo.o,$(notdir $(LANGS))))
+
+OBJS		:=	$(addprefix $(BUILD)/,$(CFILES:.c=.o) $(CPPFILES:.cpp=.o)) $(BINOBJS)
+DEPS		:=	$(OBJS:.o=.d)
+
+#---------------------------------------------------------------------------------
+# Flags
+#---------------------------------------------------------------------------------
+INCLUDES	:=	wiiu/source wiiu/source/drivers wiiu/source/drivers/wut wiiu/source/libgui \
+			wiiu/source/widgets wiiu/source/menu wiiu/source/utils $(BINDIR)
+
+LIBDIRS		:=	$(PORTLIBS) $(WUT_ROOT) $(WUT_ROOT)/usr
+
+FREETYPE_CFLAGS	:=	$(shell $(DEVKITPRO)/portlibs/ppc/bin/powerpc-eabi-pkg-config --cflags freetype2)
+FREETYPE_LIBS	:=	$(shell $(DEVKITPRO)/portlibs/ppc/bin/powerpc-eabi-pkg-config --libs freetype2)
+
+INCLUDE		:=	$(foreach d,$(INCLUDES),-I$(d)) $(foreach d,$(LIBDIRS),-I$(d)/include)
+LIBPATHS	:=	$(foreach d,$(LIBDIRS),-L$(d)/lib)
+
+WARNFLAGS	:=	-Wall -Wextra -Wno-unused-parameter
+CFLAGS		:=	-g -O3 $(WARNFLAGS) $(MACHDEP) $(INCLUDE) $(FREETYPE_CFLAGS) \
+			-DNOT64GX -D__WIIU__ -D__WUT__ -DHAVE_STDINT_H -DZLIB \
+			-D_SZ_ONE_DIRECTORY -D_LZMA_IN_CB -D_LZMA_OUT_READ \
+			-ffunction-sections -fdata-sections
+CXXFLAGS	:=	$(CFLAGS) -std=c++17
+ASFLAGS		:=	-g $(MACHDEP)
+LDFLAGS		:=	-g $(MACHDEP) $(RPXSPECS) -Wl,-Map,$(BUILD)/$(TARGET).map -Wl,--gc-sections
+
+LIBS		:=	-lsmb2 -liconv -lwut -lmocha -ldvm -lpng -lmxml -lz -lvorbisidec -logg $(FREETYPE_LIBS)
+
+#---------------------------------------------------------------------------------
+.PHONY: all clean test
+all: $(EXECUTABLES)/$(TARGET).wuhb
+
+$(EXECUTABLES)/$(TARGET).wuhb: $(EXECUTABLES)/$(TARGET).rpx $(WUHB_DEPS)
+	@mkdir -p $(dir $@)
+	@echo packaging $(notdir $@) ...
+	$(SILENTCMD)wuhbtool $< $@ $(WUHB_OPTIONS)
+
+$(EXECUTABLES)/$(TARGET).rpx: $(EXECUTABLES)/$(TARGET).elf
+$(EXECUTABLES)/$(TARGET).elf: $(OBJS)
+	@mkdir -p $(dir $@) $(BUILD)
+	@echo linking ... $(notdir $@)
+	$(SILENTCMD)$(CXX) $(LDFLAGS) $(OBJS) $(LIBPATHS) $(LIBS) -o $@
+
+# Every object may include a generated asset header, so the assets come first.
+$(filter-out $(BINOBJS),$(OBJS)): | $(BINOBJS)
+
+$(BUILD)/%.o: %.cpp
+	@mkdir -p $(dir $@)
+	@echo $<
+	$(SILENTCMD)$(CXX) -MMD -MP $(CXXFLAGS) -c $< -o $@
+
+$(BUILD)/%.o: %.c
+	@mkdir -p $(dir $@)
+	@echo $<
+	$(SILENTCMD)$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
+
+#---------------------------------------------------------------------------------
+# Binary assets: bin2s writes the header (<name>_<ext>.h), the assembler the object
+#---------------------------------------------------------------------------------
+define bin2obj
+	@mkdir -p $(dir $@)
+	@echo $(notdir $<)
+	$(SILENTCMD)bin2s -a 32 -H $(dir $@)$(subst .,_,$(notdir $<)).h $< | $(AS) -o $@
+endef
+
+vpath %.png $(DATA_DIRS)
+vpath %.ogg $(DATA_DIRS)
+vpath %.pcm $(DATA_DIRS)
+vpath %.ttf $(DATA_DIRS)
+vpath %.lang $(DATA_DIRS)
+
+$(BINDIR)/%.png.o: %.png
+	$(bin2obj)
+$(BINDIR)/%.ogg.o: %.ogg
+	$(bin2obj)
+$(BINDIR)/%.pcm.o: %.pcm
+	$(bin2obj)
+$(BINDIR)/%.ttf.o: %.ttf
+	$(bin2obj)
+
+# translations are compiled to .mo first (gettext)
+.SECONDARY: $(patsubst %.mo.o,%.mo,$(filter %.mo.o,$(BINOBJS)))
+$(BINDIR)/%.mo: %.lang
+	@mkdir -p $(dir $@)
+	@echo msgfmt $(notdir $<)
+	@{ grep -q 'charset=' $< || printf 'msgid ""\nmsgstr "Content-Type: text/plain; charset=UTF-8\\n"\n\n'; tr -d '\r' < $<; } | msgfmt --no-hash -o $@ -
+$(BINDIR)/%.mo.o: $(BINDIR)/%.mo
+	$(bin2obj)
+
+#---------------------------------------------------------------------------------
+test:
+	@$(MAKE) -C tests --no-print-directory
+
+clean:
+	@echo clean ...
+	@rm -rf $(BUILD) $(EXECUTABLES)
+
+-include $(DEPS)

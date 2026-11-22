@@ -1,0 +1,79 @@
+name: wiiu
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build native Wii U (.wuhb)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(cat wiiu/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - name: Build the builder image
+        run: docker build -f docker/Dockerfile.wiiu -t not64-wiiu-builder docker
+
+      - name: Host-side tests
+        run: docker run --rm -v "$PWD":/project not64-wiiu-builder make -f Makefile.wiiu test
+
+      - name: Build
+        run: docker run --rm -v "$PWD":/project not64-wiiu-builder make -f Makefile.wiiu -j"$(nproc)"
+
+      - name: Package
+        run: |
+          mkdir -p dist/not64-wiiu/wiiu/apps dist/not64-wiiu/not64/roms dist/not64-wiiu/not64/saves
+          cp executables/not64-wiiu.wuhb dist/not64-wiiu/wiiu/apps/not64.wuhb
+          touch dist/not64-wiiu/not64/roms/put-your-n64-roms-here dist/not64-wiiu/not64/saves/saves-go-here
+          cp wiiu/README.md dist/not64-wiiu/README.md
+          cd dist && zip -r ../not64-wiiu.zip not64-wiiu
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: not64-wiiu
+          path: |
+            not64-wiiu.zip
+            executables/not64-wiiu.wuhb
+
+  release:
+    name: Publish latest release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: ver
+        run: echo "version=$(cat wiiu/VERSION)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: not64-wiiu
+
+      - name: Create or refresh the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ steps.ver.outputs.version }}
+        run: |
+          # The release always targets main and is marked Latest.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" not64-wiiu.zip executables/not64-wiiu.wuhb --clobber
+            gh release edit "$TAG" --target main --latest
+          else
+            gh release create "$TAG" not64-wiiu.zip executables/not64-wiiu.wuhb \
+              --target main --latest \
+              --title "not64 for Wii U $TAG" \
+              --notes-file wiiu/RELEASE_NOTES.md
+          fi
