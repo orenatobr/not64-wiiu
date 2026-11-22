@@ -566,8 +566,51 @@ static void testGuMath()
 	CHECK_NEAR(guVecDotProduct(&u, &u), 1.0, 1e-6);
 }
 
-int main()
+/* Dumps random states with the reference result for tools/check-shader-sim.sh (python simulation of the generated shader). */
+static void dumpVectors(const char *path)
 {
+	FILE *f = fopen(path, "w");
+	if (!f) { printf("cannot write %s\n", path); gFail++; return; }
+	srand(777);
+	for (int iter = 0; iter < 300; iter++) {
+		TevState t; tevReset(t);
+		t.numStages = (uint8_t) (1 + iter % 7);
+		for (int r = 1; r < 4; r++) for (int k = 0; k < 4; k++) t.reg[r][k] = frand();
+		for (int r = 0; r < 4; r++) for (int k = 0; k < 4; k++) t.kcolor[r][k] = frand();
+		for (int s = 0; s < t.numStages; s++) {
+			TevStage &st = t.stage[s];
+			st.texmap = (uint8_t) (rand() % 3 == 0 ? GX_TEXMAP_NULL : rand() % 3);
+			st.color = (uint8_t) (rand() % 4 == 0 ? GX_COLOR_NULL : GX_COLOR0A0);
+			for (int i = 0; i < 4; i++) { st.cIn[i] = (uint8_t) (rand() % 16); st.aIn[i] = (uint8_t) (rand() % 8); }
+			st.cOp = (uint8_t) (rand() % 2); st.aOp = (uint8_t) (rand() % 2);
+			st.cBias = (uint8_t) (rand() % 3); st.aBias = (uint8_t) (rand() % 3);
+			st.cScale = (uint8_t) (rand() % 4); st.aScale = (uint8_t) (rand() % 4);
+			st.cClamp = (uint8_t) (rand() % 2); st.aClamp = (uint8_t) (rand() % 2);
+			st.cOut = (uint8_t) (rand() % 4); st.aOut = (uint8_t) (rand() % 4);
+			st.kcSel = (uint8_t) (rand() % 2 ? rand() % 8 : 0x0C + rand() % 20);
+			st.kaSel = (uint8_t) (rand() % 2 ? rand() % 8 : 0x10 + rand() % 16);
+		}
+		Rgba ras = rgba(frand(), frand(), frand(), frand());
+		Rgba tex[2] = { rgba(frand(), frand(), frand(), frand()), rgba(frand(), frand(), frand(), frand()) };
+		PsFixedParams fp; memset(&fp, 0, sizeof(fp));
+		float ps[kPsUniformVec4 * 4];
+		int n = tevPack(t, fp, ps);
+		Rgba e = tevEvaluate(t, ras, tex);
+		fprintf(f, "case %d\n", n);
+		for (int i = 0; i < kPsUniformVec4 * 4; i++) fprintf(f, "%.9g ", ps[i]);
+		fprintf(f, "\n%.9g %.9g %.9g %.9g\n%.9g %.9g %.9g %.9g\n%.9g %.9g %.9g %.9g\n%.9g %.9g %.9g %.9g\n",
+			ras.c[0], ras.c[1], ras.c[2], ras.c[3], tex[0].c[0], tex[0].c[1], tex[0].c[2], tex[0].c[3],
+			tex[1].c[0], tex[1].c[1], tex[1].c[2], tex[1].c[3], e.c[0], e.c[1], e.c[2], e.c[3]);
+	}
+	fclose(f);
+}
+
+int main(int argc, char **argv)
+{
+	if (argc > 1) {
+		dumpVectors(argv[1]);
+		return gFail ? 1 : 0;
+	}
 	testTevHandVectors();
 	testTevPassThroughDrop();
 	testTevPackedMatchesReference();

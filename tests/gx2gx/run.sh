@@ -12,6 +12,6 @@ $CXX -std=c++17 -Wall -Wextra -Wno-unused-parameter -O1 -g -fsanitize=address,un
 	$SRC/Gx2Core.cpp $SRC/Gx2Tev.cpp $SRC/Gx2Tex.cpp $SRC/Gx2Math.cpp \
 	-o "$OUT/test_gx2gx"
 "$OUT/test_gx2gx"
-if [ -x tools/check-shader-sim.sh ] && [ -f "$SRC/shaders/ubershader.py" ]; then
+if [ -x tools/check-shader-sim.sh ] && [ -f "$SRC/shaders/gen_shaders.py" ]; then
 	tools/check-shader-sim.sh "$OUT/test_gx2gx"
 fi
