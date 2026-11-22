@@ -179,9 +179,11 @@ static void BREAK(){
 		printf("r%2d: %08x  r%2d: %08x  r%2d: %08x  r%2d: %08x\n",
 		       i, (unsigned int)reg[i], i+1, (unsigned int)reg[i+1],
 		       i+2, (unsigned int)reg[i+2], i+3, (unsigned int)reg[i+3]);
+#ifndef __WIIU__
 	printf("Press A to continue execution\n");
 	while(!(PAD_ButtonsHeld(0) & PAD_BUTTON_A));
 	while( (PAD_ButtonsHeld(0) & PAD_BUTTON_A));
+#endif
 #endif
 }
 

@@ -61,7 +61,11 @@ static int mode;
 static unsigned long long status;
 #ifdef HW_RVL
 #include "MEM2.h"
+#ifdef __WIIU__
+#define flashram ((unsigned char*)(FLASHRAM_LO))
+#else
 static unsigned char *const flashram = (unsigned char*)(FLASHRAM_LO);
+#endif
 #else //GC
 static unsigned char flashram[0x20000] __attribute__((aligned(32)));
 #endif

@@ -60,7 +60,11 @@
 
 #ifdef HW_RVL
 #include "MEM2.h"
+#ifdef __WIIU__
+#define sram ((unsigned char*)(SRAM_LO))
+#else
 static unsigned char *const sram = (unsigned char*)(SRAM_LO);
+#endif
 #else //GC
 static unsigned char sram[0x8000] __attribute__((aligned(32)));
 #endif

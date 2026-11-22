@@ -64,7 +64,11 @@
 static unsigned char eeprom[0x800] __attribute__((aligned(32)));
 #ifdef HW_RVL
 #include "MEM2.h"
+#ifdef __WIIU__
+#define mempack ((unsigned char(*)[0x8000])(MEMPACK_LO))
+#else
 static unsigned char (*const mempack)[0x8000] = (unsigned char(*)[])(MEMPACK_LO);
+#endif
 #else //GC
 static unsigned char mempack[4][0x8000] __attribute__((aligned(32)));
 #endif
@@ -307,6 +311,11 @@ int saveMempak(fileBrowser_file* savepath){
 
 void native_ReadController(int Control, BYTE *Command)
 {
+#ifdef __WIIU__
+	/* No SI port: report "no controller" for a raw passthrough request. */
+	Command[1] |= 0x80;
+	return;
+#else
 	u32 level;
 	_CPU_ISR_Disable(level);
 	while (SI_Busy())
@@ -320,6 +329,7 @@ void native_ReadController(int Control, BYTE *Command)
 			Command[1] |= 0x40;
 	}
 	_CPU_ISR_Restore(level);
+#endif
 }
 
 void internal_ReadController(int Control, BYTE *Command)

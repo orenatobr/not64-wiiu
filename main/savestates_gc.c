@@ -43,7 +43,9 @@
 #include "../r4300/r4300.h"
 #include "../r4300/interupt.h"
 #include "../gc_memory/TLB-Cache.h"
+#ifndef __WIIU__
 #include "../fileBrowser/fileBrowser-libfat.h"
+#endif
 #include "wii64config.h"
 
 char* statespath = "/not64/saves/";
@@ -57,6 +59,15 @@ int savestates_job = 0;
 extern BOOL hasLoadedROM;
 static unsigned int savestates_slot = 0;
 
+#ifdef __WIIU__
+/* The Wii U port decides where states live (device, folder, game name). */
+extern void wiiu_state_filename(char *out, unsigned size, unsigned slot);
+#define STATE_FILENAME(out) wiiu_state_filename(out, 1024, savestates_slot)
+#else
+#define STATE_FILENAME(out) sprintf(out, "%s%s%s%s.st%d",(saveStateDevice==SAVESTATEDEVICE_FAT)?"fat:":"sd:", \
+                           statespath, ROM_SETTINGS.goodname, saveregionstr(),savestates_slot)
+#endif
+
 void savestates_select_slot(unsigned int s)
 {
    if (s > 9) return;
@@ -69,8 +80,7 @@ int savestates_exists(int mode)
   gzFile f;
 	char *filename;
   filename = malloc(1024);
-  sprintf(filename, "%s%s%s%s.st%d",(saveStateDevice==SAVESTATEDEVICE_FAT)?"fat:":"sd:",
-                           statespath, ROM_SETTINGS.goodname, saveregionstr(),savestates_slot);
+  STATE_FILENAME(filename);
 
 	f = gzopen(filename, (mode == SAVESTATE) ? "wb" : "rb");
   free(filename);
@@ -90,8 +100,7 @@ void savestates_save()
 	
   /* fix the filename to %s.st%d format */
   filename = malloc(1024);
-  sprintf(filename, "%s%s%s%s.st%d",(saveStateDevice==SAVESTATEDEVICE_FAT)?"fat:":"sd:",
-                           statespath, ROM_SETTINGS.goodname, saveregionstr(),savestates_slot);
+  STATE_FILENAME(filename);
 
 	f = gzopen(filename, "wb");
   free(filename);
@@ -171,8 +180,7 @@ void savestates_load()
 		
 	/* fix the filename to %s.st%d format */
   filename = malloc(1024);
-  sprintf(filename, "%s%s%s%s.st%d",(saveStateDevice==SAVESTATEDEVICE_FAT)?"fat:":"sd:",
-                           statespath, ROM_SETTINGS.goodname, saveregionstr(),savestates_slot);
+  STATE_FILENAME(filename);
 	
 	f = gzopen(filename, "rb");
 	free(filename);

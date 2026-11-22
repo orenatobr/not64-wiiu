@@ -36,8 +36,30 @@ APP_DIRS	:=	wiiu/source wiiu/source/menu wiiu/source/libgui wiiu/source/widgets 
 
 DATA_DIRS	:=	wiiu/data/images_hd wiiu/data/sounds wiiu/data/fonts wiiu/data/lang
 
-CFILES		:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.c))
+# Wii U specific glue for the emulator core lives in wiiu/source/core
+CORE_GLUE_DIR	:=	wiiu/source/core
+APP_DIRS	+=	$(CORE_GLUE_DIR)
+
+# The original emulator core, shared with the Wii / GameCube builds.
+# (gc_audio, gc_input, fileBrowser, ROM-Cache-MEM2, wii_vm, ... are replaced by
+# the glue in wiiu/source/core.)
+CORE_C_FILES	:=	main/timers.c main/md5.c main/rom_gc.c main/savestates_gc.c \
+			r4300/r4300.c r4300/cop0.c r4300/special.c r4300/regimm.c r4300/exception.c \
+			r4300/Invalid_Code.c r4300/Recomp-Cache-Heap.c r4300/ARAM-blocks.c r4300/interupt.c \
+			r4300/cop1.c r4300/tlb.c r4300/cop1_w.c r4300/cop1_s.c r4300/cop1_d.c r4300/recomp.c \
+			r4300/bc.c r4300/cop1_l.c r4300/pure_interp.c r4300/compare_core.c r4300/profile.c \
+			r4300/ppc/MIPS-to-PPC.c r4300/ppc/Recompile.c r4300/ppc/Wrappers.c \
+			r4300/ppc/FuncTree.c r4300/ppc/Register-Cache.c \
+			gc_memory/tlb.c gc_memory/TLB-Cache-hash.c gc_memory/memory.c gc_memory/dma.c \
+			gc_memory/n64_cic_nus_6105.c gc_memory/pif.c gc_memory/flashram.c \
+			rsp_hle/alist.c rsp_hle/alist_audio.c rsp_hle/alist_naudio.c rsp_hle/alist_nead.c \
+			rsp_hle/audio.c rsp_hle/cicx105.c rsp_hle/hle.c rsp_hle/hvqm.c rsp_hle/jpeg.c \
+			rsp_hle/memory.c rsp_hle/mp3.c rsp_hle/musyx.c rsp_hle/re2.c rsp_hle/plugin.c
+
+CFILES		:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.c)) $(CORE_C_FILES)
 CPPFILES	:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.cpp))
+CORE_OBJS	:=	$(addprefix $(BUILD)/,$(CORE_C_FILES:.c=.o))
+GLUE_OBJS	:=	$(addprefix $(BUILD)/,$(patsubst %.c,%.o,$(wildcard $(CORE_GLUE_DIR)/*.c)))
 
 PNGS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.png))
 OGGS		:=	$(foreach d,$(DATA_DIRS),$(wildcard $(d)/*.ogg))
@@ -56,8 +78,7 @@ DEPS		:=	$(OBJS:.o=.d)
 #---------------------------------------------------------------------------------
 # Flags
 #---------------------------------------------------------------------------------
-INCLUDES	:=	wiiu/source wiiu/source/drivers wiiu/source/drivers/wut wiiu/source/libgui \
-			wiiu/source/widgets wiiu/source/menu wiiu/source/utils $(BINDIR)
+INCLUDES	:=	wiiu/source/core/compat wiiu/source $(BINDIR)
 
 LIBDIRS		:=	$(PORTLIBS) $(WUT_ROOT) $(WUT_ROOT)/usr
 
@@ -73,13 +94,20 @@ CFLAGS		:=	-g -O3 $(WARNFLAGS) $(MACHDEP) $(INCLUDE) $(FREETYPE_CFLAGS) \
 			-D_SZ_ONE_DIRECTORY -D_LZMA_IN_CB -D_LZMA_OUT_READ \
 			-ffunction-sections -fdata-sections
 CXXFLAGS	:=	$(CFLAGS) -std=c++17
+# The core is classic C written for GCC 4: keep the GNU dialect, and let the
+# few things modern GCC rejects stay warnings.
+CORE_CFLAGS	:=	-g -O3 $(MACHDEP) $(INCLUDE) -std=gnu17 -fgnu89-inline -ffunction-sections -fdata-sections \
+			-D__WIIU__ -D__WUT__ -DHW_RVL -DRELEASE -DNDEBUG -DMENU_V2 -DUSE_EXPANSION \
+			-DPPC_DYNAREC -DUSE_RECOMP_CACHE -DGLN64_GX -DZLIB \
+			-Wno-error=int-conversion -Wno-error=incompatible-pointer-types \
+			-Wno-error=implicit-function-declaration -Wno-error=implicit-int
 ASFLAGS		:=	-g $(MACHDEP)
 LDFLAGS		:=	-g $(MACHDEP) $(RPXSPECS) -Wl,-Map,$(BUILD)/$(TARGET).map -Wl,--gc-sections
 
 LIBS		:=	-lsmb2 -liconv -lwut -lmocha -ldvm -lpng -lmxml -lz -lvorbisidec -logg $(FREETYPE_LIBS)
 
 #---------------------------------------------------------------------------------
-.PHONY: all clean test
+.PHONY: all clean test core
 all: $(EXECUTABLES)/$(TARGET).wuhb
 
 $(EXECUTABLES)/$(TARGET).wuhb: $(EXECUTABLES)/$(TARGET).rpx $(WUHB_DEPS)
@@ -105,6 +133,10 @@ $(BUILD)/%.o: %.c
 	@mkdir -p $(dir $@)
 	@echo $<
 	$(SILENTCMD)$(CC) -MMD -MP $(CFLAGS) -c $< -o $@
+
+# the original core is old code: silence its warnings. Our glue keeps them.
+$(CORE_OBJS): CFLAGS := $(CORE_CFLAGS) -w
+$(GLUE_OBJS): CFLAGS := $(CORE_CFLAGS) $(WARNFLAGS)
 
 #---------------------------------------------------------------------------------
 # Binary assets: bin2s writes the header (<name>_<ext>.h), the assembler the object
@@ -138,6 +170,9 @@ $(BINDIR)/%.mo: %.lang
 	@{ grep -q 'charset=' $< || printf 'msgid ""\nmsgstr "Content-Type: text/plain; charset=UTF-8\\n"\n\n'; tr -d '\r' < $<; } | msgfmt --no-hash -o $@ -
 $(BINDIR)/%.mo.o: $(BINDIR)/%.mo
 	$(bin2obj)
+
+# compile only the emulator core and its Wii U glue (fast feedback while porting)
+core: $(CORE_OBJS) $(GLUE_OBJS)
 
 #---------------------------------------------------------------------------------
 test:

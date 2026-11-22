@@ -59,6 +59,9 @@ inline unsigned int dyna_run(PowerPC_func* func, PowerPC_instr* code){
 	register void* r29 __asm__("r29") = rdram;
 	register void* r30 __asm__("r30") = func;
 	register void* r31 __asm__("r31") = NULL;
+#ifdef __WIIU__
+	register void* r13 __asm__("r13") = DYNA_SDA_BASE;
+#endif
 
 	end_section(TRAMP_SECTION);
 
@@ -76,7 +79,11 @@ inline unsigned int dyna_run(PowerPC_func* func, PowerPC_instr* code){
 		"bctr             \n"
 		"2:               \n"
 		: "=r" (r3), "=r" (r30), "=r" (return_addr), "=r" (link_branch)
+#ifdef __WIIU__
+		: "r" (code), "r" (r29), "r" (r30), "r" (r31), "r" (r13)
+#else
 		: "r" (code), "r" (r29), "r" (r30), "r" (r31)
+#endif
 		: "r0", "r2", "r4", "r5", "r6", "r7", "r8", "r9", "r10", "r11", "r12",
 		  "fr0", "fr1", "fr2", "fr3", "fr4", "fr5", "fr6", "fr7", "fr8", "fr9", "fr10", "fr11", "fr12", "fr13",
 		  "lr", "ctr", "cr0", "cr1", "cr2", "cr3", "cr4", "cr5", "cr6", "cr7", "ca");

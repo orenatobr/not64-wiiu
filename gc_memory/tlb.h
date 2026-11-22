@@ -55,8 +55,14 @@ typedef struct _tlb
    unsigned long phys_odd;
 } tlb;
 #ifndef USE_TLB_CACHE
+#ifdef __WIIU__
+#include "MEM2.h"
+#define tlb_LUT_r ((unsigned long*)(TLBLUT_LO))
+#define tlb_LUT_w ((unsigned long*)(TLBLUT_LO+0x400000))
+#else
 extern unsigned long *const tlb_LUT_r;
 extern unsigned long *const tlb_LUT_w;
+#endif
 void tlb_mem2_init();
 #endif
 unsigned long virtual_to_physical_address(unsigned long addresse, int w);

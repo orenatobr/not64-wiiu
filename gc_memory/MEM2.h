@@ -30,10 +30,20 @@
 #define MB (1024*1024)
 #define KB (1024)
 
+#ifdef __WIIU__
+// The native Wii U has no fixed MEM2 window. The same layout is carved out of
+// one arena that wiiu_mem2_init() allocates at run time (see wiiu/source/core/wiiu_mem.c).
+extern char *wiiu_mem2_arena;
+#define MEM2_ARENA_SIZE 0x33E0000
+#define MEM2_LO   ((char*)wiiu_mem2_arena)
+#define MEM2_HI   ((char*)wiiu_mem2_arena + MEM2_ARENA_SIZE)
+#define MEM2_SIZE MEM2_ARENA_SIZE
+#else
 // MEM2 begins at MEM2_LO, the Starlet's Dedicated Memory begins at MEM2_HI
 #define MEM2_LO   ((char*)0x90000000)
 #define MEM2_HI   ((char*)0x933E0000)
 #define MEM2_SIZE (MEM2_HI - MEM2_LO)
+#endif
 
 // Testing the XFB in MEM2
 #define XFB_SIZE (640*576*2) // XFB_SIZE*2 ~= 1.4MB
