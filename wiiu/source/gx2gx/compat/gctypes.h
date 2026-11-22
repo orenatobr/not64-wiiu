@@ -1,7 +1,7 @@
 /*
- * gctypes.h (not64 GX2 shim): the libogc integer/float typedefs glN64_GX uses.
- * BOOL/TRUE/FALSE are intentionally not defined here: wut, main/winlnxdefs.h
- * or the caller provide them.
+ * gctypes.h (not64 GX2 shim): the libogc integer/float typedefs glN64_GX uses, plus
+ * BOOL/TRUE/FALSE as libogc's gctypes.h provides them. BOOL is int32_t, identical to
+ * wut's typedef, so including both is fine.
  */
 #ifndef __NOT64_GCTYPES_H__
 #define __NOT64_GCTYPES_H__
@@ -27,7 +27,18 @@ typedef volatile int32_t vs32;
 typedef volatile int64_t vs64;
 typedef float f32;
 typedef double f64;
+typedef int32_t BOOL;
+#ifndef TRUE
+#define TRUE 1
+#endif
+#ifndef FALSE
+#define FALSE 0
+#endif
 typedef volatile float vf32;
 typedef volatile double vf64;
+
+#ifndef ATTRIBUTE_ALIGN
+#define ATTRIBUTE_ALIGN(v) __attribute__((aligned(v)))
+#endif
 
 #endif

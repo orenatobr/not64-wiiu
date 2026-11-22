@@ -512,10 +512,10 @@ int __lwp_heap_free(heap_cntrl *h, void *ptr)
 	return 1;
 }
 
-void DCFlushRange(void *p, u32 len) { invalidateRange((uintptr_t) p, len, false); }
-void DCStoreRange(void *p, u32 len) { invalidateRange((uintptr_t) p, len, false); }
-void DCInvalidateRange(void *p, u32 len) { (void) p; (void) len; }
-void DCZeroRange(void *p, u32 len) { memset(p, 0, len); invalidateRange((uintptr_t) p, len, false); }
+void gx2gx_DCFlushRange(void *p, u32 len) { invalidateRange((uintptr_t) p, len, false); }
+void gx2gx_DCStoreRange(void *p, u32 len) { invalidateRange((uintptr_t) p, len, false); }
+void gx2gx_DCInvalidateRange(void *p, u32 len) { (void) p; (void) len; }
+void gx2gx_DCZeroRange(void *p, u32 len) { memset(p, 0, len); invalidateRange((uintptr_t) p, len, false); }
 
 } /* extern "C" */
 

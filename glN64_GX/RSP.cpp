@@ -38,6 +38,11 @@
 #include "FrameBuffer.h"
 #include "DepthBuffer.h"
 #include "GBI.h"
+#ifdef __WIIU__
+// newer libstdc++ headers (pulled in by <math.h>) #undef min; restore glN64's macro
+#undef min
+#define min(a,b) ((a) < (b) ? (a) : (b))
+#endif
 
 RSPInfo		RSP;
 
