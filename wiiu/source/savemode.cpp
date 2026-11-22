@@ -1,5 +1,7 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
+ *
+ * Based on Snes9x GX, Daryl Borth 2008-2026
  *
  * Daryl Borth 2008-2026
  *
@@ -11,16 +13,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "snes9xgx.h"
+#include "not64gx.h"
 #include "savemode.h"
-#include "sram.h"
-#include "freeze.h"
+#include "emu_n64.h"
 #include "fileop.h"
 #include "filebrowser.h"
 #include "menu/menu.h"
-
-#include "snes9x/snes9x.h"
-#include "snes9x/memmap.h"
 
 // What is in storage is behind what is in the machine, for each of the two autosaves. They are kept apart
 // because they are written apart: the Save Mode can change in the menu, and either file can be updated on
@@ -82,36 +80,26 @@ bool ScreenshotIsCurrent()
  *
  * The game has just been loaded and is cold booted. Runs on the thread that
  * loaded it.
+ *
+ * The game's own saves (EEPROM, SRAM, FlashRAM, Controller Pak) are loaded in
+ * Snapshot and Cartridge Save mode. A Snapshot is a full machine state and does
+ * not hold them, so it is applied on top.
  ***************************************************************************/
 void AutoLoadOnGameOpen()
 {
-	MigrateSaveFileNames();
-
 	switch(EmuSettings.saveMode)
 	{
 		case SAVEMODE_SNAPSHOT:
 		{
-			const int snapshot = LoadSnapshotAuto(SILENT);
+			N64LoadGameSaves(true);
 
-			if(snapshot == 1)
-				break;
-
-			// No Auto Snapshot yet (the first time, or the Save Mode was just
-			// changed), or one that can't be loaded: the Cartridge Save is what is left
-			const bool gameSave = LoadSRAMAuto(SILENT);
-
-			if(snapshot < 0)
-			{
-				if(gameSave)
-					ErrorPrompt("The Auto Snapshot couldn't be loaded. The Cartridge Save was loaded instead.");
-				else
-					ErrorPrompt("The Auto Snapshot couldn't be loaded. The game starts from the beginning.");
-			}
+			if(N64StateExists(0) && !N64LoadState(0, true))
+				ErrorPrompt("The Auto Snapshot couldn't be loaded. The game starts from the beginning.");
 			break;
 		}
 
 		case SAVEMODE_GAMESAVE:
-			LoadSRAMAuto(SILENT);
+			N64LoadGameSaves(true);
 			break;
 
 		case SAVEMODE_MANUAL:
@@ -125,53 +113,32 @@ void AutoLoadOnGameOpen()
 /****************************************************************************
  * AutoSaveOnQuit
  *
- * Leaving the game for good. In the game, what it is doing now is written. In
- * the menu, nothing was written when the game was left for it, so what the
- * game was doing then - or what was loaded or reset since - is written now,
- * if the autosave is behind it.
+ * Leaving the game for good. The game's own saves are written whatever the
+ * Save Mode is when the game changed them, so a battery save is never lost.
+ * In Snapshot mode what the game was doing is written too.
  ***************************************************************************/
 void AutoSaveOnQuit(bool screenshotIsCurrent)
 {
-	if(SNESROMSize == 0)
+	(void)screenshotIsCurrent;
+
+	if(!N64IsLoaded())
 		return;
 
 	const bool inMenu = appRequest == AppRequest::MENU;
 
-	switch(EmuSettings.saveMode)
-	{
-		case SAVEMODE_SNAPSHOT:
-		{
-			if(inMenu && !snapshotStale)
-				break;
+	// the game's own saves first: they are small and what matters most
+	WaitForBackgroundTasks(15000);
+	N64SaveGameSaves(true);
+	CartridgeSaveWritten();
 
-			// A write to the same file may still be going
-			WaitForBackgroundTasks(15000);
+	if(EmuSettings.saveMode != SAVEMODE_SNAPSHOT)
+		return;
 
-			// In the menu, the screenshot is right unless something was loaded or reset there
-			StateSnapshot * snapshot = SnapshotStateAuto(inMenu ? ScreenshotIsCurrent() : screenshotIsCurrent);
+	if(inMenu && !snapshotStale)
+		return;
 
-			if(snapshot)
-			{
-				WriteStateSnapshot(snapshot, SILENT);
-				FreeStateSnapshot(snapshot);
-			}
-			AutoSnapshotWritten();
-			break;
-		}
-
-		case SAVEMODE_GAMESAVE:
-			if(inMenu && !cartridgeStale)
-				break;
-
-			WaitForBackgroundTasks(15000);
-			SaveSRAMAuto(SILENT);
-			CartridgeSaveWritten();
-			break;
-
-		case SAVEMODE_MANUAL:
-		default:
-			break;
-	}
+	N64SaveState(0, true);
+	AutoSnapshotWritten();
 }
 
 /****************************************************************************
@@ -179,51 +146,17 @@ void AutoSaveOnQuit(bool screenshotIsCurrent)
  *
  * The game has just been left for the menu. Returning to the menu doesn't
  * write the Auto Snapshot (see savemode.h) - but with none at all, the Saves
- * screen would say "Empty until you play" until the game was left for good.
- * So the first time, with no Auto Snapshot on the device, it is written now
- * (the screenshot has just been taken, so it is current).
- *
- * The state is captured here, on the thread that owns the emulator; writing
- * it to the device is queued, so going to the menu doesn't wait on the device.
+ * screen would say "Empty" until the game was left for good. So the first
+ * time, with no Auto Snapshot on the device, it is written now.
  ***************************************************************************/
-static int FirstAutoSnapshotTask(void * arg)
-{
-	StateSnapshot * snapshot = (StateSnapshot *)arg;
-
-	WriteStateSnapshot(snapshot, SILENT);
-	FreeStateSnapshot(snapshot);
-	return 0;
-}
-
 void AutoSnapshotOnFirstMenuReturn()
 {
-	if(SNESROMSize == 0 || EmuSettings.saveMode != SAVEMODE_SNAPSHOT)
+	if(!N64IsLoaded() || EmuSettings.saveMode != SAVEMODE_SNAPSHOT)
 		return;
 
-	char filepath[1024];
+	if(N64StateExists(0))
+		return; // there is one: leave it as it is
 
-	if(!MakeFilePath(filepath, FILE_STATE, Memory.ROMFilename, 0))
-		return;
-
-	FILE * fp = fopen(filepath, "rb");
-
-	if(fp)
-	{
-		fclose(fp); // there is one: leave it as it is
-		return;
-	}
-
-	StateSnapshot * snapshot = SnapshotStateAuto(ScreenshotIsCurrent());
-
-	if(!snapshot)
-		return;
-
-	AutoSnapshotWritten(); // what was captured is what the file is about to hold
-
-	if(QueueBackgroundTask(FirstAutoSnapshotTask, snapshot))
-		return;
-
-	// Worker unavailable or its queue is full (unlikely) - don't lose it
-	WriteStateSnapshot(snapshot, SILENT);
-	FreeStateSnapshot(snapshot);
+	if(N64SaveState(0, true))
+		AutoSnapshotWritten();
 }

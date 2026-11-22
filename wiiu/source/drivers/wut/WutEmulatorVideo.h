@@ -1,16 +1,17 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * Daryl Borth 2026
+ * Based on dborth's WutEmulatorVideo (Snes9x GX), Daryl Borth 2026.
  *
  * WutEmulatorVideo.h
  *
- * EmulatorVideoDriver implementation for Wii U: uploads the raw SNES
- * framebuffer into a linear GX2 texture and draws it with the shared
- * Texture2DShader.
+ * EmulatorVideoDriver implementation for Wii U. The N64 renderer draws each
+ * frame into an off-screen GX2 colour buffer and hands it over with
+ * Wiiu_PresentEmuFrame(). This class places that picture on the TV and the
+ * GamePad (aspect ratio, zoom, position), filters it (bilinear, sharp bilinear,
+ * scanlines, ScaleFX) and presents it.
  ***************************************************************************/
 #pragma once
-
 #include <stdint.h>
 #include <gx2/sampler.h>
 #include <gx2/texture.h>
@@ -27,26 +28,30 @@ class WutEmulatorVideo : public EmulatorVideoDriver
 
 		void init(VideoDriver* videoDriver) override;
 		void resetVideo() override;
+		//! Draws the frame given to setFrame() and flips. width/height are the size of
+		//! the picture in the texture, which the N64 changes on its own (320x240, 640x480 ...).
 		void presentFrame(int width, int height) override;
 		void readFrameRGB24(uint8_t* dst) override;
 		void forceVideoUpdate() override;
-		bool mapPointerToFrame(float canvasX, float canvasY, bool onGamePad, int* frameX, int* frameY) override;
+
+		//! The finished frame. The texture is owned by the renderer and stays valid
+		//! until the next call.
+		void setFrame(const GX2Texture* frame, int width, int height);
+
+		//! The instance created by the video driver, for the C entry point.
+		static WutEmulatorVideo* current();
 
 	private:
-		void rebuildTexture(int width, int height);
-		void destroyTexture();
-		void uploadFrame();
 		void drawQuad();
 
 		WutVideoDriver* videoDriver;
-
-		GX2Texture* texture;
+		const GX2Texture* frameTexture;
 		GX2Sampler sampler;
 
 		int vwidth, vheight;
 		int oldvwidth, oldvheight;
 		int checkVideo;
-		uint32_t prevRenderedFrameCount;
+		bool haveFrame;
 
 		// Where the game quad is drawn: top-left x/y and size w/h in the pixels of each render target
 		// Scaling/filtering uses it too (source-to-output scale = size / vwidth, vheight).

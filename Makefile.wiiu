@@ -144,7 +144,7 @@ $(GLUE_OBJS): CFLAGS := $(CORE_CFLAGS) $(WARNFLAGS)
 define bin2obj
 	@mkdir -p $(dir $@)
 	@echo $(notdir $<)
-	$(SILENTCMD)bin2s -a 32 -H $(dir $@)$(subst .,_,$(notdir $<)).h $< | $(AS) -o $@
+	$(SILENTCMD)bin2s -a 32 -H $(dir $@)$(subst .,_,$(notdir $<)).h $< | $(CC) -x assembler-with-cpp $(ASFLAGS) -c -o $@ -
 endef
 
 vpath %.png $(DATA_DIRS)

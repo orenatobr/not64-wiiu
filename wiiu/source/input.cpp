@@ -1,506 +1,190 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * softdev July 2006
- * crunchy2 May-June 2007
- * Michniewski 2008
- * Daryl Borth 2008-2026
+ * Based on Snes9x GX by softdev, crunchy2, Michniewski and Daryl Borth.
  *
  * input.cpp
+ *
+ * Turns what the Wii U controllers report into N64 controller state.
  ***************************************************************************/
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include <unistd.h>
-
-#include "snes9x/port.h"
-#include "snes9xgx.h"
+#include "not64gx.h"
 #include "button_mapping.h"
 #include "menu/menu.h"
-#include "video.h"
 #include "input.h"
 #include "libgui/Gui.h"
 
-#include "snes9x/snes9x.h"
-#include "snes9x/memmap.h"
-#include "snes9x/controls.h"
-#include "snes9x/ppu.h"
+#include "core/input_wiiu.h"
+#include "core/core_wiiu.h"
 
-#define ANALOG_SENSITIVITY 30
+// The menus and the games share the stick: this is how far it has to move
+// before a direction is pressed
+#define STICK_PRESS_THRESHOLD 0.55f
+// The N64 analog stick reports -80..80 (the real hardware peaks around 85)
+#define N64_STICK_RANGE 80.0f
+#define STICK_DEADZONE 0.12f
 
 int playerMapping[4] = {0,1,2,3};
 
-// hold superscope/mouse/justifier cursor positions
-static int cursor_x[5] = {0,0,0,0,0};
-static int cursor_y[5] = {0,0,0,0,0};
+uint32_t btnmap[CTRL_BTN_MAPPINGS][INPUT_HW_MAX][MAXJP]; // button mapping
 
 /****************************************************************************
- * Controller Functions
+ * Default mappings
  *
- * The following map the Wii controls to the Snes9x controller system
+ * One row per kind of hardware, in the order of the N64_BTN_* enum:
+ * A B Z START L R  C-UP C-DOWN C-LEFT C-RIGHT  D-UP D-DOWN D-LEFT D-RIGHT
+ * The analog stick always drives the N64 stick, and when "Right Stick as C
+ * Buttons" is on the right stick presses the C buttons on top of this.
  ***************************************************************************/
-#define ASSIGN_BUTTON_TRUE( keycode, snescmd ) \
-	  S9xMapButton( keycode, cmd = S9xGetCommandT(snescmd), true)
-
-#define ASSIGN_BUTTON_FALSE( keycode, snescmd ) \
-	  S9xMapButton( keycode, cmd = S9xGetCommandT(snescmd), false)
-
-static int scopeTurbo = 0; // tracks whether superscope turbo is on or off
-uint32_t btnmap[CTRL_BTN_MAPPINGS][INPUT_HW_MAX][MAXJP]; // button mapping
+static void SetMapping(int hw, const uint32_t (&row)[MAXJP])
+{
+	for(int i = 0; i < MAXJP; i++)
+		btnmap[CTRL_PAD][hw][i] = row[i];
+}
 
 void ResetControls(int consoleCtrl, int wiiCtrl)
 {
-	int i;
-	/*** Gamecube controller Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_GAMECUBE))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_X;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_TRIGGER_L;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_TRIGGER_R;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_TRIGGER_ZR; // Z button
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_RIGHT;
-	}
+	(void)consoleCtrl;
 
-	/*** Wiimote Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_WIIMOTE))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_2;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_1;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_NONE;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_NONE;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_RIGHT;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_DOWN;
-	}
+	const uint32_t NONE = INPUT_BTN_NONE;
 
-	/*** Classic Controller Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_CLASSIC))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_X;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_TRIGGER_L;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_TRIGGER_R;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_CLASSIC][i++] = INPUT_BTN_RIGHT;
-	}
+	// Pro Controller, GamePad, Xbox 360, DualShock 4 and USB pads: face buttons are
+	// A and B, the C buttons are X and Y (and the right stick), Z on the triggers
+	const uint32_t modern[MAXJP] = {
+		INPUT_BTN_A, INPUT_BTN_B, INPUT_TRIGGER_ZL | INPUT_TRIGGER_ZR, INPUT_BTN_PLUS,
+		INPUT_TRIGGER_L, INPUT_TRIGGER_R,
+		INPUT_BTN_X, NONE, INPUT_BTN_Y, NONE,
+		INPUT_BTN_UP, INPUT_BTN_DOWN, INPUT_BTN_LEFT, INPUT_BTN_RIGHT };
 
-	/*** Wii U Pro Controller / Gamepad (DRC) ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && (wiiCtrl == INPUT_HW_WUPC || wiiCtrl == INPUT_HW_DRC)))
-	{
-        int hw = (wiiCtrl == INPUT_HW_WUPC) ? INPUT_HW_WUPC : INPUT_HW_DRC;
-		i=0;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_X;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_TRIGGER_L;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_TRIGGER_R;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][hw][i++] = INPUT_BTN_RIGHT;
-	}
+	// GameCube controller (adapter): the C stick is the right stick, Z is Z
+	const uint32_t gamecube[MAXJP] = {
+		INPUT_BTN_A, INPUT_BTN_B, INPUT_TRIGGER_ZR, INPUT_BTN_PLUS,
+		INPUT_TRIGGER_L, INPUT_TRIGGER_R,
+		INPUT_BTN_X, NONE, INPUT_BTN_Y, NONE,
+		INPUT_BTN_UP, INPUT_BTN_DOWN, INPUT_BTN_LEFT, INPUT_BTN_RIGHT };
 
-	/*** DualShock 4 Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_DS4))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_X;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_TRIGGER_L;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_TRIGGER_R;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_DS4][i++] = INPUT_BTN_RIGHT;
-	}
+	// Classic Controller
+	const uint32_t classic[MAXJP] = {
+		INPUT_BTN_A, INPUT_BTN_B, INPUT_TRIGGER_ZL | INPUT_TRIGGER_ZR, INPUT_BTN_PLUS,
+		INPUT_TRIGGER_L, INPUT_TRIGGER_R,
+		INPUT_BTN_X, NONE, INPUT_BTN_Y, NONE,
+		INPUT_BTN_UP, INPUT_BTN_DOWN, INPUT_BTN_LEFT, INPUT_BTN_RIGHT };
 
-	/*** Xbox 360 Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_XBOX360))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_A;      // Xbox B
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_B;      // Xbox A
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_X;      // Xbox Y
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_Y;      // Xbox X
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_TRIGGER_L;  // LB
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_TRIGGER_R;  // RB
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_PLUS;   // Start
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_MINUS;  // Back
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_XBOX360][i++] = INPUT_BTN_RIGHT;
-	}
+	// Wiimote held sideways: two face buttons, the rest on the D-pad and +/-
+	const uint32_t wiimote[MAXJP] = {
+		INPUT_BTN_2, INPUT_BTN_1, INPUT_BTN_B, INPUT_BTN_PLUS,
+		INPUT_BTN_MINUS, INPUT_BTN_A,
+		NONE, NONE, NONE, NONE,
+		INPUT_BTN_RIGHT, INPUT_BTN_LEFT, INPUT_BTN_UP, INPUT_BTN_DOWN };
 
-	/*** Generic USB (Retrode / Hornet / Mayflash) Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_GENERIC_USB))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_X;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_TRIGGER_L;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_TRIGGER_R;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_PLUS;   // Start
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_MINUS;  // Select
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_RIGHT;
-	}
+	// Nunchuk + Wiimote: the stick moves, the D-pad is the C buttons
+	const uint32_t nunchuk[MAXJP] = {
+		INPUT_BTN_A, INPUT_BTN_B, INPUT_TRIGGER_ZL, INPUT_BTN_PLUS,
+		INPUT_TRIGGER_L, INPUT_BTN_2,
+		INPUT_BTN_UP, INPUT_BTN_DOWN, INPUT_BTN_LEFT, INPUT_BTN_RIGHT,
+		NONE, NONE, NONE, NONE };
 
-		
-	/*** Nunchuk + Wiimote Padmap ***/
-	if(consoleCtrl == -1 || (consoleCtrl == CTRL_PAD && wiiCtrl == INPUT_HW_NUNCHUK))
-	{
-		i=0;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_A;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_B;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_TRIGGER_L;  // C mapped to L
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_TRIGGER_ZL; // Z mapped to ZL
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_2;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_1;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_PLUS;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_LEFT;
-		btnmap[CTRL_PAD][INPUT_HW_NUNCHUK][i++] = INPUT_BTN_RIGHT;
-	}
+	// USB mouse: only two buttons, nothing sensible beyond A and B
+	const uint32_t mouse[MAXJP] = {
+		INPUT_BTN_A, INPUT_BTN_B, NONE, NONE,
+		NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE, NONE };
 
-	/*** Superscope (Map identical to generic UI masks) ***/
-	if (consoleCtrl == -1 || consoleCtrl == CTRL_SCOPE) {
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_TRIGGER_ZR;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_GAMECUBE][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_UP;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_DOWN;
-		btnmap[CTRL_SCOPE][INPUT_HW_WIIMOTE][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_CLASSIC][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_WUPC][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_DRC][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_DS4][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_XBOX360][i++] = INPUT_BTN_PLUS;
-		i=0;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_MINUS;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_Y;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_X;
-		btnmap[CTRL_SCOPE][INPUT_HW_GENERIC_USB][i++] = INPUT_BTN_PLUS;
-		i=0;
-		// USB mouse: left fires, right aims off screen, middle pauses
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_A;
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_B;
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_NONE;
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_NONE;
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_NONE;
-		btnmap[CTRL_SCOPE][INPUT_HW_USBMOUSE][i++] = INPUT_BTN_X;
-	}
-
-	/*** Mouse & Justifier Mapping (Simplified identically to masks) ***/
-    if (consoleCtrl == -1 || consoleCtrl == CTRL_MOUSE) {
-        btnmap[CTRL_MOUSE][INPUT_HW_GAMECUBE][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_GAMECUBE][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_WIIMOTE][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_WIIMOTE][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_CLASSIC][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_CLASSIC][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_WUPC][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_WUPC][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_DRC][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_DRC][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_DS4][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_DS4][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_XBOX360][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_XBOX360][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_GENERIC_USB][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_GENERIC_USB][1] = INPUT_BTN_B;
-        btnmap[CTRL_MOUSE][INPUT_HW_USBMOUSE][0] = INPUT_BTN_A;
-        btnmap[CTRL_MOUSE][INPUT_HW_USBMOUSE][1] = INPUT_BTN_B;
-    }
-
-    if (consoleCtrl == -1 || consoleCtrl == CTRL_JUST) {
-        btnmap[CTRL_JUST][INPUT_HW_GAMECUBE][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_GAMECUBE][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_GAMECUBE][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_WIIMOTE][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_WIIMOTE][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_WIIMOTE][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_CLASSIC][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_CLASSIC][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_CLASSIC][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_WUPC][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_WUPC][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_WUPC][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_DRC][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_DRC][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_DRC][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_DS4][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_DS4][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_DS4][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_XBOX360][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_XBOX360][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_XBOX360][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_GENERIC_USB][0] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_GENERIC_USB][1] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_GENERIC_USB][2] = INPUT_BTN_PLUS;
-        btnmap[CTRL_JUST][INPUT_HW_USBMOUSE][0] = INPUT_BTN_A;
-        btnmap[CTRL_JUST][INPUT_HW_USBMOUSE][1] = INPUT_BTN_B;
-        btnmap[CTRL_JUST][INPUT_HW_USBMOUSE][2] = INPUT_BTN_X;
-    }
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_GAMECUBE) SetMapping(INPUT_HW_GAMECUBE, gamecube);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_WIIMOTE)  SetMapping(INPUT_HW_WIIMOTE, wiimote);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_NUNCHUK)  SetMapping(INPUT_HW_NUNCHUK, nunchuk);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_CLASSIC)  SetMapping(INPUT_HW_CLASSIC, classic);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_WUPC)     SetMapping(INPUT_HW_WUPC, modern);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_DRC)      SetMapping(INPUT_HW_DRC, modern);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_DS4)      SetMapping(INPUT_HW_DS4, modern);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_XBOX360)  SetMapping(INPUT_HW_XBOX360, modern);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_GENERIC_USB) SetMapping(INPUT_HW_GENERIC_USB, modern);
+	if(wiiCtrl == -1 || wiiCtrl == INPUT_HW_USBMOUSE) SetMapping(INPUT_HW_USBMOUSE, mouse);
 }
 
 /****************************************************************************
- * UpdateCursorPosition
+ * Analog stick
  *
- * Updates X/Y coordinates for Superscope/mouse/justifier position
+ * A radial dead zone, then the rest of the throw is stretched to the N64's
+ * range so the stick reaches full speed at the edge and starts from zero
+ * right after the dead zone (no jump).
  ***************************************************************************/
-static void UpdateCursorPosition(int chan, int &pos_x, int &pos_y)
+static int8_t StickToN64(float x, float y, bool horizontal)
 {
-	if (!controller[chan]) return;
-	const InputPadData& pad = controller[chan]->getPadData();
-	const int cursorHeight = PPU.ScreenHeight > 0 ? PPU.ScreenHeight : SNES_HEIGHT;
+	const float magnitude = sqrtf(x * x + y * y);
+	if(magnitude <= STICK_DEADZONE)
+		return 0;
 
-	EmulatorVideoDriver* emuVideo = platform->getVideo()->getEmulatorVideo();
+	const float scaled = fminf((magnitude - STICK_DEADZONE) / (1.0f - STICK_DEADZONE), 1.0f);
+	const float axis = horizontal ? x : y;
+	const float value = (axis / magnitude) * scaled * N64_STICK_RANGE;
 
-	if (pad.validPointer)
-	{
-		int cursorX, cursorY;
-
-		// The video driver maps through the game's real on-screen placement (aspect correction, zoom, shift)
-		if (emuVideo && emuVideo->mapPointerToFrame(pad.cursor_x, pad.cursor_y, pad.isTouch, &cursorX, &cursorY))
-		{
-			pos_x = cursorX;
-			pos_y = cursorY;
-		}
-		else
-		{
-			// No driver mapping: assume the frame fills the whole canvas
-			pos_x = (int)((pad.cursor_x * SNES_WIDTH) / platform->getVideo()->getScreenWidth());
-			pos_y = (int)((pad.cursor_y * cursorHeight) / platform->getVideo()->getScreenHeight());
-		}
-	}
-	else
-	{
-		float sensitivity = (float)ANALOG_SENSITIVITY / 128.0f;
-		if (std::abs(pad.stickX) > sensitivity) pos_x += (int)(pad.stickX * 6.4f);
-		if (std::abs(pad.stickY) > sensitivity) pos_y -= (int)(pad.stickY * 6.4f);
-	}
-
-	// Clamp to the frame the game actually draws
-	if (pos_x > SNES_WIDTH - 1) pos_x = SNES_WIDTH - 1;
-	if (pos_x < 0) pos_x = 0;
-	if (pos_y > cursorHeight - 1) pos_y = cursorHeight - 1;
-	if (pos_y < 0) pos_y = 0;
-}
-
-static uint32_t StickToVirtualButtons(float stickX, float stickY, float substickX, float substickY)
-{
-	const float sensitivity = (float)ANALOG_SENSITIVITY / 128.0f;
-	uint32_t buttons = 0;
-
-	if (stickY > sensitivity) buttons |= INPUT_BTN_UP;
-	else if (stickY < -sensitivity) buttons |= INPUT_BTN_DOWN;
-	if (stickX < -sensitivity) buttons |= INPUT_BTN_LEFT;
-	else if (stickX > sensitivity) buttons |= INPUT_BTN_RIGHT;
-
-	if (EmuSettings.mapAbxyRightStick)
-	{
-		if (substickY > sensitivity) buttons |= INPUT_BTN_X;
-		else if (substickY < -sensitivity) buttons |= INPUT_BTN_B;
-		if (substickX < -sensitivity) buttons |= INPUT_BTN_Y;
-		else if (substickX > sensitivity) buttons |= INPUT_BTN_A;
-	}
-
-	return buttons;
+	if(value > N64_STICK_RANGE) return (int8_t)N64_STICK_RANGE;
+	if(value < -N64_STICK_RANGE) return (int8_t)-N64_STICK_RANGE;
+	return (int8_t)lroundf(value);
 }
 
 /****************************************************************************
  * decodepad
  *
- * Reads the changes (buttons pressed, etc) from a controller and reports
- * these changes to Snes9x
+ * Builds the N64 pad of one port out of everything connected to one Wii U
+ * controller channel.
  ***************************************************************************/
-static void decodepad (int chan, int emuChan)
+static void decodepad(int chan, WiiuN64Pad & out)
 {
-	if (!controller[chan]) return;
+	if(!controller[chan]) return;
 	const InputPadData& pad = controller[chan]->getPadData();
-	int i, offset;
 
-	// Each connected piece of hardware turns its own sticks into directions (and, optionally, ABXY),
-	// which are then looked up in that hardware's own mapping. Using one merged stick for all of them
-	// would let, say, a Nunchuk stick press whatever the Wiimote's mapping has on that direction.
-	uint32_t virtual_jp[INPUT_HW_MAX];
-	for (uint32_t hw = 0; hw < INPUT_HW_MAX; hw++)
+	bool pressed[MAXJP] = { false };
+	float stickX = 0.0f, stickY = 0.0f;
+
+	for(uint32_t hw = 0; hw < INPUT_HW_MAX; hw++)
 	{
-		virtual_jp[hw] = pad.hw_connected[hw] ? StickToVirtualButtons(
-			pad.hw_stickX[hw], pad.hw_stickY[hw], pad.hw_substickX[hw], pad.hw_substickY[hw]) : 0;
-	}
+		if(!pad.hw_connected[hw]) continue;
 
-	offset = ((emuChan + 1) << 4);
-
-	/*** Report pressed buttons (gamepads) ***/
-	for (i = 0; i < 12; i++)
-	{
-		bool button_pressed = false;
-
-		// Check if ANY connected hardware matches the mapping
-		for (uint32_t hw = 0; hw < INPUT_HW_MAX; hw++)
+		for(int i = 0; i < MAXJP; i++)
 		{
-			if (!pad.hw_connected[hw]) continue;
-			uint32_t mapped_btn = btnmap[CTRL_PAD][hw][i];
-
-			if ((pad.hw_buttons_h[hw] & mapped_btn) || (virtual_jp[hw] & mapped_btn)) {
-				button_pressed = true;
-				break;
-			}
+			if(pad.hw_buttons_h[hw] & btnmap[CTRL_PAD][hw][i])
+				pressed[i] = true;
 		}
 
-		S9xReportButton(offset + i, button_pressed);
+		// The right stick can press the C buttons
+		if(EmuSettings.mapRightStickToC)
+		{
+			if(pad.hw_substickY[hw] > STICK_PRESS_THRESHOLD) pressed[N64_BTN_C_UP] = true;
+			else if(pad.hw_substickY[hw] < -STICK_PRESS_THRESHOLD) pressed[N64_BTN_C_DOWN] = true;
+			if(pad.hw_substickX[hw] < -STICK_PRESS_THRESHOLD) pressed[N64_BTN_C_LEFT] = true;
+			else if(pad.hw_substickX[hw] > STICK_PRESS_THRESHOLD) pressed[N64_BTN_C_RIGHT] = true;
+		}
+
+		// the strongest stick of all that is connected moves the N64 stick
+		if(fabsf(pad.hw_stickX[hw]) + fabsf(pad.hw_stickY[hw]) > fabsf(stickX) + fabsf(stickY))
+		{
+			stickX = pad.hw_stickX[hw];
+			stickY = pad.hw_stickY[hw];
+		}
 	}
 
-	/*** Superscope ***/
-	if (Settings.SuperScopeMaster && emuChan == 0) // report only once
-	{
-		offset = 0x50;
-		for (i = 0; i < 6; i++)
-		{
-			bool button_pressed = false;
-			for (uint32_t hw = 0; hw < INPUT_HW_MAX; hw++) {
-				if (!pad.hw_connected[hw]) continue;
-				if (pad.hw_buttons_h[hw] & btnmap[CTRL_SCOPE][hw][i]) {
-					button_pressed = true;
-					break;
-				}
-			}
-
-			if (button_pressed)
-			{
-				if(i == 3 || i == 4) // turbo
-				{
-					if((i == 3 && scopeTurbo == 1) || (i == 4 && scopeTurbo == 0)) {
-						S9xReportButton(offset + i, false);
-					} else {
-						scopeTurbo = 4-i;
-						S9xReportButton(offset + i, true);
-					}
-				}
-				else S9xReportButton(offset + i, true);
-			}
-			else S9xReportButton(offset + i, false);
-		}
-		offset = 0x80;
-		UpdateCursorPosition(emuChan, cursor_x[0], cursor_y[0]);
-		S9xReportPointer(offset, (uint16_t) cursor_x[0], (uint16_t) cursor_y[0]);
-	}
-	/*** Mouse ***/
-	else if (Settings.MouseMaster && emuChan < 2)
-	{
-		offset = 0x60 + (2 * emuChan);
-		for (i = 0; i < 2; i++)
-		{
-			bool button_pressed = false;
-			for (uint32_t hw = 0; hw < INPUT_HW_MAX; hw++) {
-				if (!pad.hw_connected[hw]) continue;
-				if (pad.hw_buttons_h[hw] & btnmap[CTRL_MOUSE][hw][i]) {
-					button_pressed = true; break;
-				}
-			}
-			S9xReportButton(offset + i, button_pressed);
-		}
-		offset = 0x81;
-		UpdateCursorPosition(emuChan, cursor_x[1 + emuChan], cursor_y[1 + emuChan]);
-		S9xReportPointer(offset + emuChan, (uint16_t) cursor_x[1 + emuChan], (uint16_t) cursor_y[1 + emuChan]);
-	}
-	/*** Justifier ***/
-	else if (Settings.JustifierMaster && emuChan < 2)
-	{
-		offset = 0x70 + (3 * emuChan);
-		for (i = 0; i < 3; i++)
-		{
-			bool button_pressed = false;
-			for (uint32_t hw = 0; hw < INPUT_HW_MAX; hw++) {
-				if (!pad.hw_connected[hw]) continue;
-				if (pad.hw_buttons_h[hw] & btnmap[CTRL_JUST][hw][i]) {
-					button_pressed = true; break;
-				}
-			}
-			S9xReportButton(offset + i, button_pressed);
-		}
-		offset = 0x83;
-		UpdateCursorPosition(emuChan, cursor_x[3 + emuChan], cursor_y[3 + emuChan]);
-		S9xReportPointer(offset + emuChan, (uint16_t) cursor_x[3 + emuChan], (uint16_t) cursor_y[3 + emuChan]);
-	}
+	out.a = pressed[N64_BTN_A];
+	out.b = pressed[N64_BTN_B];
+	out.z = pressed[N64_BTN_Z];
+	out.start = pressed[N64_BTN_START];
+	out.l = pressed[N64_BTN_L];
+	out.r = pressed[N64_BTN_R];
+	out.cup = pressed[N64_BTN_C_UP];
+	out.cdown = pressed[N64_BTN_C_DOWN];
+	out.cleft = pressed[N64_BTN_C_LEFT];
+	out.cright = pressed[N64_BTN_C_RIGHT];
+	out.dup = pressed[N64_BTN_D_UP];
+	out.ddown = pressed[N64_BTN_D_DOWN];
+	out.dleft = pressed[N64_BTN_D_LEFT];
+	out.dright = pressed[N64_BTN_D_RIGHT];
+	out.x = StickToN64(stickX, stickY, true);
+	out.y = StickToN64(stickX, stickY, false);
 }
 
 bool isMenuRequested()
@@ -510,7 +194,7 @@ bool isMenuRequested()
 		if (!controller[i]) continue;
 		const InputPadData& pad = controller[i]->getPadData();
 
-		bool rightStickLeft = (pad.substickX < -0.55f);
+		bool rightStickLeft = (pad.substickX < -0.55f) && !EmuSettings.mapRightStickToC;
 		bool homePressed = (pad.buttons_h & INPUT_BTN_HOME);
 		bool lPlusRPlusStart = (pad.buttons_h & INPUT_TRIGGER_L) && (pad.buttons_h & INPUT_TRIGGER_R) && (pad.buttons_h & INPUT_BTN_PLUS);
 		bool oneTwoPlus = (pad.buttons_h & INPUT_BTN_1) && (pad.buttons_h & INPUT_BTN_2) && (pad.buttons_h & INPUT_BTN_PLUS);
@@ -531,48 +215,6 @@ bool isMenuRequested()
 	return false;
 }
 
-bool IsTurboModeInputPressed()
-{
-	if (!controller[0]) return false;
-	const InputPadData& pad = controller[0]->getPadData();
-
-	switch(EmuSettings.turboModeButton)
-	{
-		case TURBO_BUTTON_RSTICK:
-			return (pad.substickX > 0.55f);
-		case TURBO_BUTTON_A:
-			return (pad.buttons_h & INPUT_BTN_A);
-		case TURBO_BUTTON_B:
-			return (pad.buttons_h & INPUT_BTN_B);
-		case TURBO_BUTTON_X:
-			return (pad.buttons_h & INPUT_BTN_X);
-		case TURBO_BUTTON_Y:
-			return (pad.buttons_h & INPUT_BTN_Y);
-		case TURBO_BUTTON_L:
-			return (pad.buttons_h & INPUT_TRIGGER_L);
-		case TURBO_BUTTON_R:
-			return (pad.buttons_h & INPUT_TRIGGER_R);
-		case TURBO_BUTTON_ZL:
-			return (pad.buttons_h & INPUT_TRIGGER_ZL);
-		case TURBO_BUTTON_ZR:
-			return (pad.buttons_h & INPUT_TRIGGER_ZR);
-		case TURBO_BUTTON_Z: // GC Z (reported as ZR by the generic mapping)
-			return (pad.buttons_h & INPUT_TRIGGER_ZR);
-		case TURBO_BUTTON_C: // Nunchuk C (reported as L by the generic mapping)
-			return (pad.buttons_h & INPUT_TRIGGER_L);
-		case TURBO_BUTTON_1:
-			return (pad.buttons_h & INPUT_BTN_1);
-		case TURBO_BUTTON_2:
-			return (pad.buttons_h & INPUT_BTN_2);
-		case TURBO_BUTTON_PLUS:
-			return (pad.buttons_h & INPUT_BTN_PLUS);
-		case TURBO_BUTTON_MINUS:
-			return (pad.buttons_h & INPUT_BTN_MINUS);
-		default:
-			return false;
-	}
-}
-
 static bool buttonsReported = false;
 
 void ClearButtonsReported () {
@@ -582,8 +224,8 @@ void ClearButtonsReported () {
 /****************************************************************************
  * ReportButtons
  *
- * Called on each rendered frame
- * Our way of putting controller input into Snes9x
+ * Called on each emulated frame: polls the hardware, hands the game its
+ * controller state, and asks for the menu when the user wants it.
  ***************************************************************************/
 void ReportButtons ()
 {
@@ -592,185 +234,79 @@ void ReportButtons ()
 
 	buttonsReported = true;
 
-	int i;
-
 	platform->getInput()->update();
 
-	if (EmuSettings.turboModeEnabled)
-	{
-		Settings.TurboMode = IsTurboModeInputPressed();
-	}
-	
-	if(Settings.TurboMode) {
-		Settings.SoundSync = false;
-	}
-	else {
-		Settings.SoundSync = true;
-	}
-
-	/* Check for menu:
-	 * CStick left
-	 * OR "L+R+START" (eg. Homebrew/Adapted SNES controllers)
-	 * OR "Home" on the wiimote or classic controller
-	 * OR Left on classic right analog stick
-	 */
+	/* Check for menu: HOME, the right stick pushed left, L+R+START or 1+2+PLUS */
 	if(isMenuRequested())
 		appRequest = AppRequest::MENU; // go to the menu
 
-	int numControllers = (Settings.MultiPlayer5Master == true ? 4 : 2);
+	WiiuN64Pad pads[4];
+	memset(pads, 0, sizeof(pads));
 
-	for (i = 0; i < 4; i++) {
-		if(playerMapping[i] < numControllers) {
-			decodepad (i, playerMapping[i]);
-		}
+	for(int chan = 0; chan < 4; chan++)
+	{
+		const int port = playerMapping[chan];
+		if(port >= 0 && port < 4)
+			decodepad(chan, pads[port]);
 	}
+
+	for(int port = 0; port < 4; port++)
+		wiiu_input_set_pad(port, &pads[port]);
 }
 
-void SetControllers()
+/****************************************************************************
+ * Rumble
+ *
+ * The game talks to the Rumble Pak of a port; the pad that plays that port
+ * is the one that vibrates.
+ ***************************************************************************/
+static void OnRumble(int port, int on)
 {
-	if (Settings.MultiPlayer5Master == true)
+	if(!EmuSettings.rumble)
+		on = 0;
+
+	for(int chan = 0; chan < 4; chan++)
 	{
-		S9xSetController (0, CTL_JOYPAD, 0, 0, 0, 0);
-		S9xSetController (1, CTL_MP5, 1, 2, 3, -1);
-	}
-	else if (Settings.SuperScopeMaster == true)
-	{
-		S9xSetController (0, CTL_JOYPAD, 0, 0, 0, 0);
-		S9xSetController (1, CTL_SUPERSCOPE, 0, 0, 0, 0);
-	}
-	else if (Settings.MouseMaster == true)
-	{
-		if (EmuSettings.controller == CTRL_MOUSE)
-		{
-			S9xSetController (0, CTL_MOUSE, 0, 0, 0, 0);
-			S9xSetController (1, CTL_JOYPAD, 1, 0, 0, 0);
-		}
-		else if (EmuSettings.controller == CTRL_MOUSE_PORT2)
-		{
-			S9xSetController (0, CTL_JOYPAD, 0, 0, 0, 0);
-			S9xSetController (1, CTL_MOUSE, 1, 0, 0, 0);
-		}
-		else if (EmuSettings.controller == CTRL_MOUSE_BOTH_PORTS)
-		{
-			S9xSetController (0, CTL_MOUSE, 0, 0, 0, 0);
-			S9xSetController (1, CTL_MOUSE, 1, 0, 0, 0);
-		}	
-	}
-	else if (Settings.JustifierMaster == true)
-	{
-		S9xSetController (0, CTL_JOYPAD, 0, 0, 0, 0);
-		S9xSetController(1, CTL_JUSTIFIER, 1, 0, 0, 0);
-	}
-	else
-	{
-		// Plugin 2 Joypads by default
-		S9xSetController (0, CTL_JOYPAD, 0, 0, 0, 0);
-		S9xSetController (1, CTL_JOYPAD, 1, 0, 0, 0);
+		if(playerMapping[chan] == port)
+			platform->getInput()->setRumble(chan, on != 0);
 	}
 }
 
 /****************************************************************************
- * Set the default mapping
+ * SetControllers
+ *
+ * Tells the core which ports have a controller and which Pak is in it.
  ***************************************************************************/
+void SetControllers()
+{
+	for(int port = 0; port < 4; port++)
+	{
+		int pak = N64_PAK_NONE;
+
+		switch(EmuSettings.pakMode[port])
+		{
+			case PAK_MEMORY: pak = N64_PAK_MEMORY; break;
+			case PAK_RUMBLE: pak = N64_PAK_RUMBLE; break;
+			default: pak = N64_PAK_NONE; break;
+		}
+
+		// A port is "present" when a Wii U controller plays it (player 1 always is)
+		bool present = (port == 0);
+		for(int chan = 0; chan < 4; chan++)
+		{
+			if(playerMapping[chan] == port && controller[chan])
+				present = true;
+		}
+
+		wiiu_input_configure_port(port, present, pak);
+	}
+
+	wiiu_input_set_rumble_callback(OnRumble);
+}
+
 void SetDefaultButtonMap ()
 {
-	int maxcode = 0x10;
-	s9xcommand_t cmd;
-
-	/*** Joypad 1 ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 A");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 B");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 X");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Y");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 R");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Start");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Select");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Up");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Down");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Left");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad1 Right");
-
-	maxcode = 0x20;
-	/*** Joypad 2 ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 A");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 B");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 X");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Y");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 R");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Start");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Select");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Up");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Down");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Left");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad2 Right");
-
-	maxcode = 0x30;
-	/*** Joypad 3 ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 A");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 B");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 X");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Y");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 R");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Start");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Select");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Up");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Down");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Left");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad3 Right");
-
-	maxcode = 0x40;
-	/*** Joypad 4 ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 A");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 B");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 X");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Y");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 R");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Start");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Select");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Up");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Down");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Left");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Joypad4 Right");
-
-	maxcode = 0x50;
-	/*** Superscope ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope Fire");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope AimOffscreen");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope Cursor");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope ToggleTurbo");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope ToggleTurbo");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Superscope Pause");
-
-	maxcode = 0x60;
-	/*** Mouse ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Mouse1 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Mouse1 R");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Mouse2 L");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Mouse2 R");
-
-	maxcode = 0x70;
-	/*** Justifier ***/
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier1 Trigger");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier1 AimOffscreen");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier1 Start");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier2 Trigger");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier2 AimOffscreen");
-	ASSIGN_BUTTON_FALSE (maxcode++, "Justifier2 Start");
-
-	maxcode = 0x80;
-	S9xMapPointer(maxcode++, S9xGetCommandT("Pointer Superscope"), false);
-	S9xMapPointer(maxcode++, S9xGetCommandT("Pointer Mouse1"), false);
-	S9xMapPointer(maxcode++, S9xGetCommandT("Pointer Mouse2"), false);
-	S9xMapPointer(maxcode++, S9xGetCommandT("Pointer Justifier1"), false);
-	S9xMapPointer(maxcode++, S9xGetCommandT("Pointer Justifier2"), false);
-
-	maxcode = 0x90;
-	//ASSIGN_BUTTON_FALSE (maxcode++, "Screenshot");
-
+	ResetControls();
 	SetControllers();
 }
 

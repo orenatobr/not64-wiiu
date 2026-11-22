@@ -1,5 +1,7 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
+ *
+ * Based on Snes9x GX, Daryl Borth 2026
  * Daryl Borth 2026
  * mappingui.cpp
  *
@@ -23,13 +25,13 @@
 #include "menu.h"
 #include "input.h"
 #include "button_mapping.h"
-#include "snes9xgx.h"
+#include "not64gx.h"
 
 namespace {
 
 // What is being mapped. Coming from Game Settings starts from the device the game is set to and the controller in
 // use; coming back from General Mappings keeps what was picked.
-int mapSnesCtrl = CTRL_PAD;
+int mapCtrl = CTRL_PAD;
 int mapHardware = -1;
 bool keepSelection = false;
 
@@ -76,19 +78,10 @@ std::vector<int> HardwareList(int ctrl)
 	return v;
 }
 
-// The device the game is set to, as one of the four this screen lists (the two- and four-player settings and the
-// mouse in port 2 or both ports use the same buttons as the single ones)
-int KindForSetting(int setting)
+// The N64 has one kind of controller
+int KindForSetting(int)
 {
-	switch(setting)
-	{
-		case CTRL_SCOPE: return CTRL_SCOPE;
-		case CTRL_JUST: return CTRL_JUST;
-		case CTRL_MOUSE:
-		case CTRL_MOUSE_PORT2:
-		case CTRL_MOUSE_BOTH_PORTS: return CTRL_MOUSE;
-		default: return CTRL_PAD;
-	}
+	return CTRL_PAD;
 }
 
 // The hardware that opened the screen (the controller whose A pressed Button Mappings), or -1 when not known
@@ -141,7 +134,7 @@ int DefaultHardware(const std::vector<int>& list)
 
 void ResolveHardware()
 {
-	const std::vector<int> list = HardwareList(mapSnesCtrl);
+	const std::vector<int> list = HardwareList(mapCtrl);
 	if(mapHardware < 0 || !Contains(list, mapHardware))
 		mapHardware = DefaultHardware(list);
 }
@@ -444,13 +437,13 @@ void MappingView::selectRow(int index)
 
 std::vector<PickerItem> EmulatingItems()
 {
-	static const int kinds[] = { CTRL_PAD, CTRL_SCOPE, CTRL_MOUSE, CTRL_JUST };
+	static const int kinds[] = { CTRL_PAD };
 	std::vector<PickerItem> items;
 	for(size_t i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++)
 	{
 		PickerItem it;
 		it.name = Tr(ctrlName[kinds[i]]);
-		it.current = kinds[i] == mapSnesCtrl;
+		it.current = kinds[i] == mapCtrl;
 		items.push_back(it);
 	}
 	return items;
@@ -480,7 +473,7 @@ int MappingScreen()
 {
 	if(!keepSelection)
 	{
-		mapSnesCtrl = KindForSetting(EmuSettings.controller);
+		mapCtrl = KindForSetting(0);
 		mapHardware = -1;
 	}
 	keepSelection = false;
@@ -489,7 +482,7 @@ int MappingScreen()
 
 	while(true)
 	{
-		MappingView view(mapSnesCtrl, mapHardware);
+		MappingView view(mapCtrl, mapHardware);
 		MenuScreenWindow screen(view);
 		bool rebuild = false;
 
@@ -511,7 +504,7 @@ int MappingScreen()
 			{
 				view.resetButton().resetState();
 				if(MenuConfirm("Reset Mappings", "Are you sure that you want to reset your mappings?", "Yes", "No"))
-					ResetControls(mapSnesCtrl, mapHardware);
+					ResetControls(mapCtrl, mapHardware);
 			}
 
 			int row;
@@ -519,16 +512,16 @@ int MappingScreen()
 			{
 				// a popover beside the row, over this screen, which stays drawn (dimmed) where it is
 				const GuiPopover::Anchor anchor = view.anchorForRow(row);
-				const MapRow * mapRow = FindRow(mapSnesCtrl, row);
+				const MapRow * mapRow = FindRow(mapCtrl, row);
 				uint32_t pressed = 0;
 				bool chosen;
 				{
 					MenuPageDisabled pageDisabled;
-					chosen = MappingChoose(mapRow ? mapRow->name : "", mapHardware, btnmap[mapSnesCtrl][mapHardware][row],
-						DefaultButton(mapSnesCtrl, mapHardware, row), anchor, pressed);
+					chosen = MappingChoose(mapRow ? mapRow->name : "", mapHardware, btnmap[mapCtrl][mapHardware][row],
+						DefaultButton(mapCtrl, mapHardware, row), anchor, pressed);
 				}
 				if(chosen)
-					btnmap[mapSnesCtrl][mapHardware][row] = pressed;
+					btnmap[mapCtrl][mapHardware][row] = pressed;
 				MenuMainWindow().changeFocus(&screen.window());
 				screen.window().resetState();
 				view.selectRow(row);
@@ -547,7 +540,7 @@ int MappingScreen()
 						chosen = MenuPopover_Pick(Tr("Which device is being emulated?"), EmulatingItems(), anchor);
 					else
 					{
-						list = HardwareList(mapSnesCtrl);
+						list = HardwareList(mapCtrl);
 						chosen = MenuPopover_Pick(Tr("Which controller is being mapped?"), HardwareItems(list), anchor);
 					}
 				}
@@ -558,8 +551,8 @@ int MappingScreen()
 				{
 					if(pick == MappingView::Pick::EMULATING)
 					{
-						static const int kinds[] = { CTRL_PAD, CTRL_SCOPE, CTRL_MOUSE, CTRL_JUST };
-						mapSnesCtrl = kinds[chosen];
+						static const int kinds[] = { CTRL_PAD };
+						mapCtrl = kinds[chosen];
 						ResolveHardware();
 					}
 					else if((size_t)chosen < list.size())

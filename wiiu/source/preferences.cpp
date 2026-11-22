@@ -1,5 +1,7 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
+ *
+ * Based on Snes9x GX, Daryl Borth 2008-2026
  *
  * Daryl Borth 2008-2026
  *
@@ -22,16 +24,16 @@
 #include <gx2/display.h>
 #endif
 
-#include "snes9xgx.h"
+#include "not64gx.h"
 #include "menu/menu.h"
 #include "fileop.h"
 #include "video.h"
 #include "filebrowser.h"
 #include "input.h"
+#include "emu_n64.h"
 #include "button_mapping.h"
 #include "drivers/safestr.h"
 #include "libgui/Gui.h"
-#include "snes9x/apu/apu.h"
 
 #ifdef HW_RVL
 #include "drivers/ogc/wii/WiiPlatform.h"
@@ -116,10 +118,7 @@ struct CtrlMapKind
 
 static const CtrlMapKind ctrlMapKinds[] =
 {
-	{ CTRL_PAD,	"pad", "SNES Pad" },
-	{ CTRL_SCOPE, "scope", "Superscope" },
-	{ CTRL_MOUSE, "mouse", "Mouse" },
-	{ CTRL_JUST, "just", "Justifier" },
+	{ CTRL_PAD,	"pad", "N64 Pad" },
 };
 
 // indexed by GuiHardwareProfile; the description is ctrlrName[hw]
@@ -199,7 +198,6 @@ preparePrefsData ()
 	createXMLSetting("loadFolder", "Load Folder", EmuSettings.loadFolder);
 	createXMLSetting("lastFileLoaded", "Last File Loaded", EmuSettings.lastFileLoaded);
 	createXMLSetting("saveFolder", "Save Folder", EmuSettings.saveFolder);
-	createXMLSetting("cheatFolder", "Cheats Folder", EmuSettings.cheatFolder);
 	createXMLSetting("screenshotsFolder", "Screenshots Folder", EmuSettings.screenshotsFolder);
 	createXMLSetting("coverFolder", "Covers Folder", EmuSettings.coverFolder);
 	createXMLSetting("artworkFolder", "Artwork Folder", EmuSettings.artworkFolder);
@@ -213,46 +211,42 @@ preparePrefsData ()
 
 	createXMLSection("Video", "Video Settings");
 
-	createXMLSetting("videoMode", "Output Mode", toStr(EmuSettings.videoMode));
 	createXMLSetting("videoAspectRatioCorrection", "Aspect Ratio Correction", toStr(EmuSettings.videoAspectRatioCorrection));
 	createXMLSetting("videoBilinearFilter", "Bilinear Filtering", BtoStr(EmuSettings.videoBilinearFilter));
-	createXMLSetting("videoHardwareSoften", "Hardware Soften", toStr(EmuSettings.videoHardwareSoften));
 	createXMLSetting("videoScanlines", "Scanlines", BtoStr(EmuSettings.videoScanlines));
 	createXMLSetting("videoUpscalingFilter", "Upscaling Filter Method", toStr(EmuSettings.videoUpscalingFilter));
 	createXMLSetting("videoZoomHor", "Horizontal Zoom Level", FtoStr(EmuSettings.videoZoomHor));
 	createXMLSetting("videoZoomVert", "Vertical Zoom Level", FtoStr(EmuSettings.videoZoomVert));
 	createXMLSetting("videoXshift", "Horizontal Video Shift", toStr(EmuSettings.videoXshift));
 	createXMLSetting("videoYshift", "Vertical Video Shift", toStr(EmuSettings.videoYshift));
+	createXMLSetting("renderScale", "Internal Resolution", toStr(EmuSettings.renderScale));
+	createXMLSetting("frameFramebufferTextures", "Framebuffer Textures", BtoStr(EmuSettings.frameFramebufferTextures));
 
 	createXMLSection("Emulation", "Emulation Settings");
 
-	createXMLSetting("crosshair", "Crosshair", BtoStr(EmuSettings.crosshair));
-	createXMLSetting("hiResolution", "SNES Hi-Res Mode", BtoStr(EmuSettings.hiResolution));
-	createXMLSetting("spriteLimit", "Sprites per-line Limit", BtoStr(EmuSettings.spriteLimit));
-	createXMLSetting("frameSkip", "Frame Skipping", BtoStr(EmuSettings.frameSkip));
-	createXMLSetting("sfxOverclock", "SuperFX Overclock", toStr(EmuSettings.sfxOverclock));
-	createXMLSetting("interpolation", "Interpolation", toStr(EmuSettings.interpolation));
+	createXMLSetting("cpuCore", "CPU Core", toStr(EmuSettings.cpuCore));
+	createXMLSetting("countPerOp", "Cycles Per Instruction", toStr(EmuSettings.countPerOp));
+	createXMLSetting("limitFrameRate", "Limit Frame Rate", BtoStr(EmuSettings.limitFrameRate));
 	createXMLSetting("muteAudio", "Mute", BtoStr(EmuSettings.muteAudio));
+	createXMLSetting("pak1", "Controller Pak 1", toStr(EmuSettings.pakMode[0]));
+	createXMLSetting("pak2", "Controller Pak 2", toStr(EmuSettings.pakMode[1]));
+	createXMLSetting("pak3", "Controller Pak 3", toStr(EmuSettings.pakMode[2]));
+	createXMLSetting("pak4", "Controller Pak 4", toStr(EmuSettings.pakMode[3]));
 
 	createXMLSection("Menu", "Menu Settings");
 
-#if defined(HW_RVL) || defined(__WIIU__)
 	createXMLSetting("wiimoteOrientation", "Wiimote Orientation", toStr(EmuSettings.wiimoteOrientation));
-#endif
 	createXMLSetting("exitAction", "Exit Action", toStr(EmuSettings.exitAction));
 	createXMLSetting("musicVolume", "Music Volume", toStr(EmuSettings.musicVolume));
 	createXMLSetting("sfxVolume", "Sound Effects Volume", toStr(EmuSettings.sfxVolume));
 	createXMLSetting("rumble", "Rumble", BtoStr(EmuSettings.rumble));
 	createXMLSetting("language", "Language", toStr(EmuSettings.language));
 	createXMLSetting("previewImage", "Preview Image", toStr(EmuSettings.previewImage));
-	
+
 	createXMLSection("Controller", "Controller Settings");
 
-	createXMLSetting("controller", "Controller", toStr(EmuSettings.controller));
-	createXMLSetting("turboModeEnabled", "Turbo Mode Enabled", BtoStr(EmuSettings.turboModeEnabled));
-	createXMLSetting("turboModeButton", "Turbo Mode Button", toStr(EmuSettings.turboModeButton));
 	createXMLSetting("gamepadMenuToggle", "Gamepad Menu Toggle", toStr(EmuSettings.gamepadMenuToggle));
-	createXMLSetting("mapAbxyRightStick", "Map ABXY Right Stick", BtoStr(EmuSettings.mapAbxyRightStick));
+	createXMLSetting("mapRightStickToC", "Right Stick as C Buttons", BtoStr(EmuSettings.mapRightStickToC));
 
 	createXMLControllers();
 
@@ -357,27 +351,6 @@ static void loadXMLControllers()
 }
 
 void ApplySettings() {
-	// These are read when a game is loaded, which resets the core with them in place
-	switch (EmuSettings.sfxOverclock)
-	{
-		case 0: Settings.SuperFXSpeedPerLine = 5823405; break;
-		case 1: Settings.SuperFXSpeedPerLine = 0.417 * 20.5e6; break;
-		case 2: Settings.SuperFXSpeedPerLine = 0.417 * 40.5e6; break;
-		case 3: Settings.SuperFXSpeedPerLine = 0.417 * 60.5e6; break;
-		case 4: Settings.SuperFXSpeedPerLine = 0.417 * 80.5e6; break;
-		case 5: Settings.SuperFXSpeedPerLine = 0.417 * 100.5e6; break;
-		case 6: Settings.SuperFXSpeedPerLine = 0.417 * 120.5e6; break;
-	}
-
-	switch (EmuSettings.interpolation)
-	{
-		case 0: Settings.InterpolationMethod = DSP_INTERPOLATION_GAUSSIAN; break;
-		case 1: Settings.InterpolationMethod = DSP_INTERPOLATION_LINEAR; break;
-		case 2: Settings.InterpolationMethod = DSP_INTERPOLATION_CUBIC; break;
-		case 3: Settings.InterpolationMethod = DSP_INTERPOLATION_SINC; break;
-		case 4: Settings.InterpolationMethod = DSP_INTERPOLATION_NONE; break;
-	}
-
 	platform->getInput()->setWiimoteOrientation(EmuSettings.wiimoteOrientation);
 	platform->getInput()->setRumbleEnabled(EmuSettings.rumble);
 	GuiSound::setDefaultVolume(VOLUME_TYPE::MUSIC, EmuSettings.musicVolume);
@@ -409,7 +382,6 @@ decodePrefsData ()
 	loadXMLSetting(EmuSettings.loadFolder, "loadFolder", sizeof(EmuSettings.loadFolder));
 	loadXMLSetting(EmuSettings.lastFileLoaded, "lastFileLoaded", sizeof(EmuSettings.lastFileLoaded));
 	loadXMLSetting(EmuSettings.saveFolder, "saveFolder", sizeof(EmuSettings.saveFolder));
-	loadXMLSetting(EmuSettings.cheatFolder, "cheatFolder", sizeof(EmuSettings.cheatFolder));
 	loadXMLSetting(EmuSettings.screenshotsFolder, "screenshotsFolder", sizeof(EmuSettings.screenshotsFolder));
 	loadXMLSetting(EmuSettings.coverFolder, "coverFolder", sizeof(EmuSettings.coverFolder));
 	loadXMLSetting(EmuSettings.artworkFolder, "artworkFolder", sizeof(EmuSettings.artworkFolder));
@@ -423,25 +395,27 @@ decodePrefsData ()
 
 	// Video Settings
 
-	loadXMLSetting(&EmuSettings.videoMode, "videoMode");
 	loadXMLSetting(&EmuSettings.videoAspectRatioCorrection, "videoAspectRatioCorrection");
 	loadXMLSetting(&EmuSettings.videoBilinearFilter, "videoBilinearFilter");
-	loadXMLSetting(&EmuSettings.videoHardwareSoften, "videoHardwareSoften");
 	loadXMLSetting(&EmuSettings.videoUpscalingFilter, "videoUpscalingFilter");
 	loadXMLSetting(&EmuSettings.videoScanlines, "videoScanlines");
 	loadXMLSetting(&EmuSettings.videoZoomHor, "videoZoomHor");
 	loadXMLSetting(&EmuSettings.videoZoomVert, "videoZoomVert");
 	loadXMLSetting(&EmuSettings.videoXshift, "videoXshift");
 	loadXMLSetting(&EmuSettings.videoYshift, "videoYshift");
+	loadXMLSetting(&EmuSettings.renderScale, "renderScale");
+	loadXMLSetting(&EmuSettings.frameFramebufferTextures, "frameFramebufferTextures");
 
 	// Emulation Settings
-	loadXMLSetting(&EmuSettings.sfxOverclock, "sfxOverclock");
-	loadXMLSetting(&EmuSettings.crosshair, "crosshair");
-	loadXMLSetting(&EmuSettings.hiResolution, "hiResolution");
-	loadXMLSetting(&EmuSettings.spriteLimit, "spriteLimit");
-	loadXMLSetting(&EmuSettings.frameSkip, "frameSkip");
-	loadXMLSetting(&EmuSettings.interpolation, "interpolation");
+
+	loadXMLSetting(&EmuSettings.cpuCore, "cpuCore");
+	loadXMLSetting(&EmuSettings.countPerOp, "countPerOp");
+	loadXMLSetting(&EmuSettings.limitFrameRate, "limitFrameRate");
 	loadXMLSetting(&EmuSettings.muteAudio, "muteAudio");
+	loadXMLSetting(&EmuSettings.pakMode[0], "pak1");
+	loadXMLSetting(&EmuSettings.pakMode[1], "pak2");
+	loadXMLSetting(&EmuSettings.pakMode[2], "pak3");
+	loadXMLSetting(&EmuSettings.pakMode[3], "pak4");
 
 	// Menu Settings
 
@@ -455,11 +429,8 @@ decodePrefsData ()
 
 	// Controller Settings
 
-	loadXMLSetting(&EmuSettings.controller, "controller");
-	loadXMLSetting(&EmuSettings.turboModeEnabled, "turboModeEnabled");
-	loadXMLSetting(&EmuSettings.turboModeButton, "turboModeButton");
 	loadXMLSetting(&EmuSettings.gamepadMenuToggle, "gamepadMenuToggle");
-	loadXMLSetting(&EmuSettings.mapAbxyRightStick, "mapAbxyRightStick");
+	loadXMLSetting(&EmuSettings.mapRightStickToC, "mapRightStickToC");
 
 	loadXMLControllers();
 
@@ -505,18 +476,23 @@ void FixInvalidSettings()
 		EmuSettings.sfxVolume = 40;
 	if(EmuSettings.language < 0 || EmuSettings.language >= LANG_LENGTH)
 		EmuSettings.language = LANG_ENGLISH;
-	if(EmuSettings.controller > CTRL_PAD4 || EmuSettings.controller < CTRL_SCOPE)
-		EmuSettings.controller = CTRL_PAD2;
-	if(!(EmuSettings.videoHardwareSoften >= VIDEO_HW_SOFTEN_OFF && EmuSettings.videoHardwareSoften < VIDEO_HW_SOFTEN_LENGTH))
-		EmuSettings.videoHardwareSoften = VIDEO_HW_SOFTEN_AUTO;
 	if(!(EmuSettings.videoAspectRatioCorrection >= VIDEO_ASPECT_RATIO_CORRECTION_NONE && EmuSettings.videoAspectRatioCorrection < VIDEO_ASPECT_RATIO_CORRECTION_LENGTH))
-		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_NONE;
-	if(!(EmuSettings.videoMode >= VIDEOMODE_AUTO && EmuSettings.videoMode < VIDEOMODE_LENGTH))
-		EmuSettings.videoMode = VIDEOMODE_AUTO;
-#if defined(HW_RVL) || defined(HW_DOL) || defined(__WIIU__)
+		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_4_3;
+	if(!(EmuSettings.renderScale >= RENDER_SCALE_1X && EmuSettings.renderScale < RENDER_SCALE_LENGTH))
+		EmuSettings.renderScale = RENDER_SCALE_2X;
+	if(!(EmuSettings.cpuCore >= CPUCORE_AUTO && EmuSettings.cpuCore < CPUCORE_LENGTH))
+		EmuSettings.cpuCore = CPUCORE_AUTO;
+	if(!(EmuSettings.countPerOp >= 1 && EmuSettings.countPerOp <= 3))
+		EmuSettings.countPerOp = 1;
+	for(int i = 0; i < 4; i++)
+	{
+		if(!(EmuSettings.pakMode[i] >= PAK_NONE && EmuSettings.pakMode[i] < PAK_LENGTH))
+			EmuSettings.pakMode[i] = PAK_MEMORY;
+	}
+	if(!(EmuSettings.gamepadMenuToggle >= GAMEPAD_MENU_TOGGLE_DEFAULT && EmuSettings.gamepadMenuToggle < GAMEPAD_MENU_TOGGLE_LENGTH))
+		EmuSettings.gamepadMenuToggle = GAMEPAD_MENU_TOGGLE_DEFAULT;
 	if(!(EmuSettings.videoUpscalingFilter >= UPSCALE_NONE && EmuSettings.videoUpscalingFilter < NUM_UPSCALE_FILTERS))
 		EmuSettings.videoUpscalingFilter = UPSCALE_NONE;
-#endif
 	if(!(EmuSettings.wiimoteOrientation >= WIIMOTE_ORIENTATION_VERTICAL && EmuSettings.wiimoteOrientation < WIIMOTE_ORIENTATION_LENGTH))
 		EmuSettings.wiimoteOrientation = WIIMOTE_ORIENTATION_VERTICAL;
 }
@@ -576,134 +552,41 @@ void DefaultSettings()
 	EmuSettings.saveDevice = DEVICE_AUTO;
 	sprintf (EmuSettings.loadFolder, "%s/%s", APPFOLDER, loadFolder[LOADFOLDER_ROMS].name); // Path to game files
 	sprintf (EmuSettings.saveFolder, "%s/%s", APPFOLDER, saveFolder[SAVEFOLDER_SAVES].name); // Path to save files
-	sprintf (EmuSettings.cheatFolder, "%s/%s", APPFOLDER, saveFolder[SAVEFOLDER_CHEATS].name); // Path to cheat files
 	sprintf (EmuSettings.screenshotsFolder, "%s/%s", APPFOLDER, loadFolder[LOADFOLDER_SCREENSHOTS].name); // Path to screenshots files
 	sprintf (EmuSettings.coverFolder, "%s/%s", APPFOLDER, loadFolder[LOADFOLDER_COVERS].name); // Path to cover files
 	sprintf (EmuSettings.artworkFolder, "%s/%s", APPFOLDER, loadFolder[LOADFOLDER_ARTWORK].name); // Path to artwork files
 	EmuSettings.saveMode = SAVEMODE_SNAPSHOT;
 
-	EmuSettings.controller = CTRL_PAD2;
-
-	EmuSettings.videoMode = VIDEOMODE_AUTO;
-	EmuSettings.videoBilinearFilter = false;
-	EmuSettings.videoHardwareSoften = VIDEO_HW_SOFTEN_SHARP;
+	// Video: the N64 picture is 4:3. A 16:9 TV gets pillarboxes unless asked to fill.
+	EmuSettings.videoBilinearFilter = true;
 	EmuSettings.videoScanlines = false;
-#if defined(HW_RVL) || defined(HW_DOL)
 	EmuSettings.videoUpscalingFilter = UPSCALE_NONE;
-#elif defined(__WIIU__)
-	EmuSettings.videoUpscalingFilter = UPSCALE_SHARP_BILINEAR;
-#else
-	EmuSettings.videoUpscalingFilter = 0;
-#endif
-
-#ifdef HW_RVL
-	if (CONF_GetAspectRatio() == CONF_ASPECT_16_9)
-		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_16_9;
-	else
-		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_NONE;
-#elif HW_DOL
-	EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_NONE;
-#elif defined(__WIIU__)
-	if (GX2GetSystemTVAspectRatio() == GX2_ASPECT_RATIO_16_9)
-		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_16_9;
-	else
-		EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_NONE;
-#endif
-
+	EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_4_3;
 	EmuSettings.videoZoomHor = 1.0; // horizontal zoom level
 	EmuSettings.videoZoomVert = 1.0; // vertical zoom level
 	EmuSettings.videoXshift = 0; // horizontal video shift
 	EmuSettings.videoYshift = 0; // vertical video shift
-	EmuSettings.crosshair = true;
+	EmuSettings.renderScale = RENDER_SCALE_2X;
+	EmuSettings.frameFramebufferTextures = false;
+
+	// Emulation
+	EmuSettings.cpuCore = CPUCORE_AUTO;
+	EmuSettings.countPerOp = 1;
+	EmuSettings.limitFrameRate = true;
+	EmuSettings.muteAudio = false;
+	for(int i = 0; i < 4; i++)
+		EmuSettings.pakMode[i] = PAK_MEMORY;
 
 	EmuSettings.wiimoteOrientation = WIIMOTE_ORIENTATION_VERTICAL;
-#ifdef HW_RVL
-	EmuSettings.exitAction = EXITACTION_WII_AUTO;
-#elif HW_DOL
-	EmuSettings.exitAction = EXITACTION_GC_RETURN_TO_LOADER;
-#endif
 	EmuSettings.autoloadGame = false;
 	EmuSettings.musicVolume = 20;
 	EmuSettings.sfxVolume = 40;
 	EmuSettings.rumble = true;
 	EmuSettings.previewImage = PREVIEWIMAGE_COVER;
-	
-#ifdef HW_RVL
-	EmuSettings.language = CONF_GetLanguage();
-
-	if(EmuSettings.language == LANG_TRAD_CHINESE)
-		EmuSettings.language = LANG_SIMP_CHINESE;
-#elif HW_DOL
-	EmuSettings.language = SYS_GetLanguage() + LANG_ENGLISH;
-#elif defined(__WIIU__)
 	EmuSettings.language = GetWiiUSystemLanguage();
-#else
-	EmuSettings.language = LANG_ENGLISH;
-#endif
 
-	/****************** SNES9x Settings ***********************/
-
-	// Default ALL to false
-	memset (&Settings, 0, sizeof (Settings));
-
-	// General
-
-	Settings.MouseMaster = false;
-	Settings.SuperScopeMaster = false;
-	Settings.JustifierMaster = false;
-	Settings.MultiPlayer5Master = false;
-	Settings.DontSaveOopsSnapshot = true;
-	Settings.ApplyCheats = true;
-
-	Settings.HDMATimingHack = 100;
-	Settings.BlockInvalidVRAMAccessMaster = true;
-	
-	Settings.IsPatched = 0;
-
-	// Sound
-	Settings.SoundSync = true;
-	Settings.SixteenBitSound = true;
-	Settings.Stereo = true;
-	Settings.ReverseStereo = true;
-	Settings.SoundPlaybackRate = 48000;
-	Settings.SoundInputRate = 31920;
-	Settings.DynamicRateControl = true;
-	Settings.SeparateEchoBuffer = false;
-	EmuSettings.muteAudio = false;
-	EmuSettings.interpolation = 0;
-	Settings.InterpolationMethod = DSP_INTERPOLATION_GAUSSIAN;
-
-	// Graphics
-	Settings.Transparency = true;
-	Settings.MaxSpriteTilesPerLine = 34;
-	Settings.SkipFrames = AUTO_FRAMERATE;
-	Settings.TurboSkipFrames = 19;
-	Settings.AutoDisplayMessages = false;
-	Settings.InitialInfoStringTimeout = 200; // # frames to display messages for
-	Settings.DisplayFrameRate = false;
-	Settings.DisplayTime = false;
-	EmuSettings.hiResolution = true; // Enabled by default
-	EmuSettings.spriteLimit = true; // Enabled by default
-	EmuSettings.frameSkip = true; // Enabled by default
-
-	// Frame timings in 50hz and 60hz cpu mode
-	Settings.FrameTimePAL = 20000;
-	Settings.FrameTimeNTSC = 16667;
-
-	EmuSettings.sfxOverclock = 0;
-	/* Initialize Super FX CPU to normal speed by default */
-	Settings.SuperFXSpeedPerLine = 5823405;
-	
-	Settings.SuperFXClockMultiplier = 100;
-	Settings.OverclockMode = 0;
-	Settings.OneClockCycle = 6;
-	Settings.OneSlowClockCycle = 8;
-	Settings.TwoClockCycles = 12;
-
-	EmuSettings.turboModeEnabled = true; // Enabled by default
-	EmuSettings.turboModeButton = 0; // Default is Right Analog Stick (0)
 	EmuSettings.gamepadMenuToggle = GAMEPAD_MENU_TOGGLE_DEFAULT;
-	EmuSettings.mapAbxyRightStick = false;
+	EmuSettings.mapRightStickToC = true;
 }
 
 /****************************************************************************
@@ -1055,7 +938,6 @@ static void RemapUsbPathsIfNeeded()
 	RemapUsbPathIfNeeded(EmuSettings.loadFolder, sizeof(EmuSettings.loadFolder));
 	RemapUsbPathIfNeeded(EmuSettings.lastFileLoaded, sizeof(EmuSettings.lastFileLoaded));
 	RemapUsbPathIfNeeded(EmuSettings.saveFolder, sizeof(EmuSettings.saveFolder));
-	RemapUsbPathIfNeeded(EmuSettings.cheatFolder, sizeof(EmuSettings.cheatFolder));
 	RemapUsbPathIfNeeded(EmuSettings.screenshotsFolder, sizeof(EmuSettings.screenshotsFolder));
 	RemapUsbPathIfNeeded(EmuSettings.coverFolder, sizeof(EmuSettings.coverFolder));
 	RemapUsbPathIfNeeded(EmuSettings.artworkFolder, sizeof(EmuSettings.artworkFolder));
@@ -1111,7 +993,7 @@ void CreatePathWithPrefix(int device, const char* folder) {
 void CreateMissingDirectories() {
 	char defaultFolder[MAXPATHLEN];
 	if (EmuSettings.saveDevice > DEVICE_AUTO) {
-		const char* savePointers[] = { EmuSettings.saveFolder, EmuSettings.cheatFolder };
+		const char* savePointers[] = { EmuSettings.saveFolder };
 		bool appFolderChecked = false; // only hit the device once per pass
 
 		for (int i = 0; i < SAVEFOLDER_LENGTH; i++) {

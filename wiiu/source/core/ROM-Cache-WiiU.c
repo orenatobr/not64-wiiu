@@ -12,6 +12,9 @@
 #include "../../../main/ROM-Cache.h"
 #include "../../../main/rom.h"
 
+/* rom.h only declares it on PowerPC; it is defined unconditionally in main/rom_gc.c */
+extern int rom_length;
+
 /* The ROM is read in chunks that are a multiple of 4 bytes, so a byte swap
  * never straddles two chunks. */
 #define LOAD_CHUNK (1024 * 1024)
@@ -90,7 +93,9 @@ int ROMCache_load(fileBrowser_file *file)
 			return ROM_CACHE_ERROR_READ;
 		}
 
-		if (done == 0 && init_byte_swap(*(u32 *)ROMCache) == BYTE_SWAP_BAD) {
+		/* the first word as the big-endian number it spells, whatever the host is */
+		if (done == 0 && init_byte_swap(((u32)ROMCache[0] << 24) | ((u32)ROMCache[1] << 16) |
+		                                ((u32)ROMCache[2] << 8) | (u32)ROMCache[3]) == BYTE_SWAP_BAD) {
 			ROMCache_deinit();
 			return ROM_CACHE_INVALID_ROM;
 		}

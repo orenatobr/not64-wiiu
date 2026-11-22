@@ -1,6 +1,6 @@
 /****************************************************************************
- * Snes9x GX
- * Daryl Borth 2026
+ * not64 for Wii U
+ * Based on Snes9x GX, Daryl Borth 2026
  * mappingmodel.cpp
  *
  * See mappingmodel.h.
@@ -20,56 +20,25 @@ int MapProfile::rowCount() const
 	return n;
 }
 
-// The indexes are the ones the old list used (and so the ones preferences.xml and ResetControls use)
+// The indexes are the N64_BTN_* values of input.h (and so the ones preferences.xml and ResetControls use)
 static MapProfile BuildPad()
 {
 	MapProfile p;
-	p.left.push_back({ "SHOULDER", { { "L", 4, MAP_ICON::L }, { "R", 5, MAP_ICON::R } } });
-	p.left.push_back({ "D-PAD", { { "Up", 8, MAP_ICON::UP }, { "Down", 9, MAP_ICON::DOWN }, { "Left", 10, MAP_ICON::LEFT }, { "Right", 11, MAP_ICON::RIGHT } } });
-	p.right.push_back({ "FACE BUTTONS", { { "A", 0, MAP_ICON::A }, { "B", 1, MAP_ICON::B }, { "X", 2, MAP_ICON::X }, { "Y", 3, MAP_ICON::Y } } });
-	p.right.push_back({ "SYSTEM", { { "Start", 6, MAP_ICON::START }, { "Select", 7, MAP_ICON::SELECT } } });
+	p.left.push_back({ "SHOULDER", { { "L", N64_BTN_L, MAP_ICON::L }, { "R", N64_BTN_R, MAP_ICON::R }, { "Z", N64_BTN_Z, MAP_ICON::NONE } } });
+	p.left.push_back({ "D-PAD", { { "Up", N64_BTN_D_UP, MAP_ICON::UP }, { "Down", N64_BTN_D_DOWN, MAP_ICON::DOWN }, { "Left", N64_BTN_D_LEFT, MAP_ICON::LEFT }, { "Right", N64_BTN_D_RIGHT, MAP_ICON::RIGHT } } });
+	p.right.push_back({ "FACE BUTTONS", { { "A", N64_BTN_A, MAP_ICON::A }, { "B", N64_BTN_B, MAP_ICON::B } } });
+	p.right.push_back({ "C BUTTONS", { { "C Up", N64_BTN_C_UP, MAP_ICON::NONE }, { "C Down", N64_BTN_C_DOWN, MAP_ICON::NONE }, { "C Left", N64_BTN_C_LEFT, MAP_ICON::NONE }, { "C Right", N64_BTN_C_RIGHT, MAP_ICON::NONE } } });
+	p.right.push_back({ "SYSTEM", { { "Start", N64_BTN_START, MAP_ICON::START } } });
 	return p;
 }
 
-static MapProfile BuildScope()
-{
-	MapProfile p;
-	p.left.push_back({ "AIMING", { { "Fire", 0, MAP_ICON::NONE }, { "Aim Offscreen", 1, MAP_ICON::NONE }, { "Cursor", 2, MAP_ICON::NONE } } });
-	p.right.push_back({ "TURBO AND PAUSE", { { "Turbo On", 3, MAP_ICON::NONE }, { "Turbo Off", 4, MAP_ICON::NONE }, { "Pause", 5, MAP_ICON::NONE } } });
-	return p;
-}
-
-static MapProfile BuildMouse()
-{
-	MapProfile p;
-	p.left.push_back({ "MOUSE", { { "Left Button", 0, MAP_ICON::NONE } } });
-	p.right.push_back({ "MOUSE", { { "Right Button", 1, MAP_ICON::NONE } } });
-	return p;
-}
-
-static MapProfile BuildJustifier()
-{
-	MapProfile p;
-	p.left.push_back({ "AIMING", { { "Fire", 0, MAP_ICON::NONE }, { "Aim Offscreen", 1, MAP_ICON::NONE } } });
-	p.right.push_back({ "SYSTEM", { { "Start", 2, MAP_ICON::NONE } } });
-	return p;
-}
-
-const MapProfile& MappingProfile(int snesCtrl)
+const MapProfile& MappingProfile(int ctrl)
 {
 	static const MapProfile pad = BuildPad();
-	static const MapProfile scope = BuildScope();
-	static const MapProfile mouse = BuildMouse();
-	static const MapProfile justifier = BuildJustifier();
 	static const MapProfile none;
 
-	switch(snesCtrl)
-	{
-		case CTRL_PAD: return pad;
-		case CTRL_SCOPE: return scope;
-		case CTRL_MOUSE: return mouse;
-		case CTRL_JUST: return justifier;
-	}
+	if(ctrl == CTRL_PAD)
+		return pad;
 	return none;
 }
 

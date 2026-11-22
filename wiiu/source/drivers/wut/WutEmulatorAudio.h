@@ -1,33 +1,26 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * Daryl Borth 2008-2026
+ * Based on dborth's WutEmulatorAudio (Snes9x GX), Daryl Borth 2008-2026.
+ * Adapted to a push model for the N64's audio interface.
  *
  * WutEmulatorAudio.h
  *
- * EmulatorAudioDriver implementation for Wii U: an AX (sndcore2)
- * callback-driven ring buffer, built on AX voices. Owns a dedicated pair of
- * AXVoice (L/R, hard-panned) separate from WutAudioDriver's menu SFX/stream 
- * voices - via voice acquisition.
+ * EmulatorAudioDriver implementation for Wii U: a ring buffer played by two
+ * AX (sndcore2) voices, left and right, hard-panned. The N64 audio plugin
+ * pushes blocks of samples whenever the game starts an AI DMA; the voices read
+ * through the ring on their own.
  *
- * AX voices simply read forward through the looped ring on their own. 
- * There is only one callback here: just audioCallback(), which both mixes 
- * new samples in (S9x-driven, "push" side) and lazily arms/starts the voices
- * once enough is buffered via started/armAndStartVoices().
+ * Underruns play silence rather than looping stale audio: samples are cleared
+ * as soon as the hardware has consumed them.
  *
- * Foreground/background handling (WHBProcIsRunning() etc.) is not done
- * here - that's a WutAudioDriver::startEmulatorAudio()/stopEmulatorAudio()
- * mode-switch concern, same as it is for OgcEmulatorAudio's counterpart.
+ * Foreground/background handling is not done here, it belongs to
+ * WutAudioDriver::startEmulatorAudio()/stopEmulatorAudio().
  ***************************************************************************/
 #pragma once
-
 #include <stdint.h>
 #include <sndcore2/voice.h>
 #include "../EmulatorAudioDriver.h"
-
-// Snes9x sample-ready callback trampoline, registered with
-// S9xSetSamplesAvailableCallback() which requires a bare C function pointer.
-void S9xAudioCallback(void *data);
 
 class WutEmulatorAudio : public EmulatorAudioDriver
 {
@@ -38,62 +31,53 @@ class WutEmulatorAudio : public EmulatorAudioDriver
 		void init() override;
 		void resetAudio() override;
 
-		//! No-op. Voices are armed lazily by audioCallback() itself once enough have queued.
-		void start() {};
+		//! No-op. Voices are armed once enough audio has been queued by push().
+		void start() {}
 
-		//! Hard-stops both AX voices (AX_VOICE_STATE_STOPPED).
+		//! Hard-stops both AX voices and forgets what was queued.
 		void stop();
-
 		//! Frees the two AX voices. Must be called before AXQuit().
 		void shutdown();
 
-		// Called only via the S9xAudioCallback trampoline above.
-		void audioCallback();
+		//! Silences or resumes playback without losing the queue position.
+		void pause(bool paused);
+
+		//! The AI DAC rate the game programmed, in Hz.
+		void setSourceRate(uint32_t hz);
+
+		//! Queues stereo frames (big-endian signed 16-bit, left then right).
+		//! \param hz rate the samples were produced at
+		//! \param speed emulation speed relative to real time (1.0 = normal)
+		void push(const int16_t * stereoBE, uint32_t frames, uint32_t hz, float speed);
+
+		//! Frames queued ahead of the hardware playhead (after syncing with it).
+		uint32_t getQueuedFrames();
 
 	private:
 		void armAndStartVoices();
-		int getUnplayedBuffers() const { return queuedFrames / CHUNK_FRAMES; }
 		void syncQueuedFrames();
+		void applyRate();
 
-		// Chosen to match OgcEmulatorAudio's SAMPLES_TO_PROCESS/BUFFERCOUNT
-		// exactly (512 stereo frames per chunk, 16 chunks of ring capacity)
-		// so the dynamic-rate watermarks below carry over unchanged.
-		static constexpr int CHUNK_FRAMES = 512;
-		static constexpr int CHUNK_SAMPLES = CHUNK_FRAMES * 2; // interleaved L+R
-		static constexpr int BUFFERCOUNT = 16;
-		static constexpr int RING_FRAMES = CHUNK_FRAMES * BUFFERCOUNT;
+		static constexpr uint32_t RING_FRAMES = 8192;
+		//! Playback starts once this many frames are queued, to absorb jitter.
+		static constexpr uint32_t START_FRAMES = 1024;
+		//! Never queue more than this: older audio would only add latency.
+		static constexpr uint32_t MAX_QUEUED_FRAMES = RING_FRAMES - 1024;
+		//! Queue levels (in frames) for the gentle speed correction.
+		static constexpr uint32_t HIGH_WATER = 4096;
+		static constexpr uint32_t LOW_WATER = 1536;
 
 		AXVoice* voiceL;
 		AXVoice* voiceR;
-
 		alignas(32) int16_t ringL[RING_FRAMES];
 		alignas(32) int16_t ringR[RING_FRAMES];
 
-		// Scratch for S9xMixSamples: interleaved LR PCM in, then
-		// deinterleaved into ringL/ringR above. dummy[] is where samples
-		// get mixed-and-discarded when the ring is full in turbo mode.
-		uint8_t mixScratch[CHUNK_SAMPLES * 2] __attribute__ ((__aligned__ (32)));
-		uint8_t dummy[CHUNK_SAMPLES * 2] __attribute__ ((__aligned__ (32)));
-
-		// writeOffset is always advanced by exactly CHUNK_FRAMES, which
-		// evenly divides RING_FRAMES, so a chunk write never has to wrap.
-		uint32_t writeOffset;
-		bool started;
-		bool turboDrop;
-
-		// Authoritative, software-owned count of frames queued ahead of the
-		// hardware playhead, always clamped to [0, RING_FRAMES]. Deliberately
-		// NOT derived by subtracting the hardware's current read position from
-		// writeOffset on every call.
-		uint32_t queuedFrames;
+		uint32_t writeOffset;   //!< next frame to write, 0 .. RING_FRAMES - 1
+		uint32_t queuedFrames;  //!< software owned, always within [0, RING_FRAMES]
 		uint32_t lastHwFrame;
-
-		// Same discrete rate-controller states as OgcEmulatorAudio, for
-		// the same reason (hysteresis compares enums, not floats).
-		enum RateState {
-			RATE_STATE_NEUTRAL,
-			RATE_STATE_DRAINING,  // running slow to shrink an over-full queue
-			RATE_STATE_FILLING,   // running fast to grow an under-full queue
-		};
-		RateState rateState;
+		uint32_t sourceRate;
+		float speed;
+		float correction;
+		bool started;
+		bool paused;
 };

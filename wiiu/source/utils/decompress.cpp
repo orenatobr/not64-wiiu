@@ -18,7 +18,7 @@
 #include <sys/stat.h>
 #include <memory>
 
-#include "snes9xgx.h"
+#include "not64gx.h"
 #include "fileop.h"
 #include "filebrowser.h"
 #include "../menu/menu.h"

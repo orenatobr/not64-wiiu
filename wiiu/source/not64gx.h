@@ -1,27 +1,24 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * softdev July 2006
- * crunchy2 May 2007-July 2007
- * Michniewski 2008
- * Daryl Borth 2008-2026
+ * Based on Snes9x GX by softdev, crunchy2, Michniewski and Daryl Borth.
+ * N64 core: Wii64 / Mupen64GC / not64.
  *
- * snes9xgx.h
+ * not64gx.h
  *
  * This file controls overall program flow. Most things start and end here!
  ***************************************************************************/
 
-#ifndef _SNES9XGX_H_
-#define _SNES9XGX_H_
+#ifndef _NOT64GX_H_
+#define _NOT64GX_H_
 
 #include "drivers/InputDriver.h"
 #include "drivers/FileSystemDriver.h"
-#include "snes9x.h"
 #include "filelist.h"
 
-#define APPNAME 			"Snes9x GX"
-#define APPVERSION 			"5.0.6"
-#define APPFOLDER 			"snes9xgx"
+#define APPNAME 			"not64"
+#define APPVERSION 			"0.1.0"
+#define APPFOLDER 			"not64"
 #define PREF_FILE_NAME		"settings.xml"
 
 #define MAXPATHLEN 1024
@@ -30,7 +27,6 @@
 
 enum {
     SAVEFOLDER_SAVES = 0,
-    SAVEFOLDER_CHEATS,
     SAVEFOLDER_LENGTH
 };
 
@@ -48,8 +44,7 @@ typedef struct {
 } FolderDef;
 
 const FolderDef saveFolder[] = {
-    { SAVEFOLDER_SAVES,  "saves" },
-    { SAVEFOLDER_CHEATS, "cheats" }
+    { SAVEFOLDER_SAVES,  "saves" }
 };
 
 const FolderDef loadFolder[] = {
@@ -60,16 +55,15 @@ const FolderDef loadFolder[] = {
 };
 
 enum {
-	FILE_SRAM,
+	FILE_SRAM,   // the game's own saves (EEPROM, SRAM, FlashRAM, Controller Pak)
 	FILE_STATE,
-	FILE_ROM,
-	FILE_CHEAT
+	FILE_ROM
 };
 
 // What is saved and loaded without being asked (see savemode.h)
 enum {
 	SAVEMODE_SNAPSHOT = 0,	// resume exactly where you left off
-	SAVEMODE_GAMESAVE,		// keep the game's own save file; every start is a fresh boot
+	SAVEMODE_GAMESAVE,		// keep the game's own save files; every start is a fresh boot
 	SAVEMODE_MANUAL,		// nothing is saved or loaded unless asked
 	SAVEMODE_LENGTH
 };
@@ -82,40 +76,35 @@ enum {
 };
 
 enum {
-	VIDEO_ASPECT_RATIO_CORRECTION_NONE = 0,
-	VIDEO_ASPECT_RATIO_CORRECTION_16_9,
-	VIDEO_ASPECT_RATIO_CORRECTION_16_9_FIXED,
+	VIDEO_ASPECT_RATIO_CORRECTION_NONE = 0,   // fill the screen
+	VIDEO_ASPECT_RATIO_CORRECTION_4_3,        // keep the N64's 4:3 picture
+	VIDEO_ASPECT_RATIO_CORRECTION_4_3_FIXED,  // 4:3 at a whole-number scale (sharpest)
 	VIDEO_ASPECT_RATIO_CORRECTION_LENGTH
 };
 
+// Internal resolution of the 3D renderer, as a multiple of the N64's 640x480
 enum {
-	VIDEO_HW_SOFTEN_OFF = 0,
-	VIDEO_HW_SOFTEN_AUTO,
-	VIDEO_HW_SOFTEN_SHARP,
-	VIDEO_HW_SOFTEN_SOFT,
-	VIDEO_HW_SOFTEN_LENGTH
+	RENDER_SCALE_1X = 0,
+	RENDER_SCALE_2X,
+	RENDER_SCALE_3X,
+	RENDER_SCALE_LENGTH
 };
 
+// Which CPU core runs the game (values follow the core's own order)
 enum {
-	VIDEOMODE_AUTO = 0,
-	VIDEOMODE_NTSC,
-	VIDEOMODE_PROGRESSIVE,
-	VIDEOMODE_PAL,
-	VIDEOMODE_PAL60,
-	VIDEOMODE_PROGRESSIVE_576P,
-	VIDEOMODE_ORIGINAL_240P,
-	VIDEOMODE_LENGTH
+	CPUCORE_AUTO = 0,        // the recompiler when this console can run it, else the fastest interpreter
+	CPUCORE_DYNAREC,
+	CPUCORE_CACHED_INTERPRETER,
+	CPUCORE_PURE_INTERPRETER,
+	CPUCORE_LENGTH
 };
 
+// What the Controller Pak slot of a player holds
 enum {
-	SFXOVERCLOCK_OFF = 0,
-	SFXOVERCLOCK_20MHZ,
-	SFXOVERCLOCK_40MHZ,
-	SFXOVERCLOCK_60MHZ,
-	SFXOVERCLOCK_80MHZ,
-	SFXOVERCLOCK_100MHZ,
-	SFXOVERCLOCK_120MHZ,
-	SFXOVERCLOCK_LENGTH
+	PAK_NONE = 0,
+	PAK_MEMORY,
+	PAK_RUMBLE,
+	PAK_LENGTH
 };
 
 enum {
@@ -125,49 +114,19 @@ enum {
 	GAMEPAD_MENU_TOGGLE_LENGTH
 };
 
+// The one kind of controller the N64 has. Kept as an enum so the mapping
+// screens (written for several kinds) keep working unchanged.
 enum
 {
 	CTRL_PAD,
-	CTRL_SCOPE,
-	CTRL_JUST,
-	CTRL_MOUSE,
-	CTRL_MOUSE_PORT2,
-	CTRL_MOUSE_BOTH_PORTS,
-	CTRL_PAD2,
-	CTRL_PAD4,
 	CTRL_LENGTH
 };
 
-#define CTRL_BTN_MAPPINGS 4 // CTRL_PAD, CTRL_SCOPE, CTRL_JUST, CTRL_MOUSE
+#define CTRL_BTN_MAPPINGS 1
 
 const char ctrlName[CTRL_LENGTH][24] =
-{ 
-	"SNES Controller", 
-	"Super Scope", 
-	"Justifier", 
-	"SNES Mouse",
-	"SNES Mouse (Port 2)", 
-	"SNES Mouse (Both Ports)",
-	"SNES Controllers (2)", 
-	"SNES Controllers (4)"
-};
-
-enum {
-	TURBO_BUTTON_RSTICK = 0,
-	TURBO_BUTTON_A,
-	TURBO_BUTTON_B,
-	TURBO_BUTTON_X,
-	TURBO_BUTTON_Y,
-	TURBO_BUTTON_L,
-	TURBO_BUTTON_R,
-	TURBO_BUTTON_ZL,
-	TURBO_BUTTON_ZR,
-	TURBO_BUTTON_Z,
-	TURBO_BUTTON_C,
-	TURBO_BUTTON_1,
-	TURBO_BUTTON_2,
-	TURBO_BUTTON_PLUS,
-	TURBO_BUTTON_MINUS,
+{
+	"N64 Controller"
 };
 
 enum {
@@ -196,7 +155,6 @@ struct SEmuSettings{
 	char	loadFolder[MAXPATHLEN];
 	char	lastFileLoaded[MAXPATHLEN];
 	char	saveFolder[MAXPATHLEN];
-	char	cheatFolder[MAXPATHLEN];
 	char	screenshotsFolder[MAXPATHLEN];
 	char	coverFolder[MAXPATHLEN];
 	char	artworkFolder[MAXPATHLEN];
@@ -204,39 +162,35 @@ struct SEmuSettings{
 
 	SmbShareInfo smbShare;
 
-	int		videoMode;
+	// video
 	int		videoAspectRatioCorrection;
 	bool	videoBilinearFilter;
-	int		videoHardwareSoften;
-	bool	videoScanlines;
 	int		videoUpscalingFilter;
+	bool	videoScanlines;
 	float	videoZoomHor;
 	float	videoZoomVert;
 	int		videoXshift;
 	int		videoYshift;
+	int		renderScale;
+	bool	frameFramebufferTextures; // glN64: draw the N64 framebuffer into textures (for effects like the Zelda pause screen)
 
-	bool	hiResolution;
-	bool	spriteLimit;
-	bool	frameSkip;
-	bool	crosshair;
-	int		sfxOverclock;
-	int		interpolation;
+	// emulation
+	int		cpuCore;
+	int		countPerOp;       // 1 .. 3, how many cycles the core counts per MIPS instruction
+	bool	limitFrameRate;
 	bool	muteAudio;
-	
-	int		controller;
-	int		wiimoteOrientation;
+	int		pakMode[4];       // Controller Pak of each player, PAK_*
+
 	int		exitAction;
+	int		wiimoteOrientation;
 	int		musicVolume;
 	int		sfxVolume;
 	bool	rumble;
 	int		language;
 	int		previewImage;
 
-
-	bool	turboModeEnabled;
-	int		turboModeButton;
 	int		gamepadMenuToggle;
-	bool	mapAbxyRightStick;
+	bool	mapRightStickToC; // the right stick presses the C buttons
 };
 
 void ExitApp();

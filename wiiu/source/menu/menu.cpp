@@ -1,5 +1,7 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
+ *
+ * Based on Snes9x GX, Daryl Borth 2008-2026
  *
  * Daryl Borth 2008-2026
  *
@@ -22,22 +24,20 @@
 #include <ogc/ios.h>
 #endif
 
-#include "snes9xgx.h"
+#include "not64gx.h"
+#include "emu_n64.h"
 #include "memmanager.h"
 #include "video.h"
 #include "filebrowser.h"
 #include "utils/decompress.h"
 #include "fileop.h"
-#include "sram.h"
 #include "savemode.h"
-#include "freeze.h"
 #include "preferences.h"
 #include "button_mapping.h"
 #include "input.h"
 #include "menu.h"
 #include "mappingui.h"
 #include "menupopover.h"
-#include "controllerpicker.h"
 #include "filelist.h"
 #include "libgui/Gui.h"
 #include "widgets/GuiWidgets.h"
@@ -49,31 +49,8 @@
 #include "drivers/Mutex.h"
 #include "drivers/Cond.h"
 #include "drivers/safestr.h"
-
-#ifdef HW_RVL
-#include "drivers/ogc/wii/WiiPlatform.h"
-#elif HW_DOL
-#include "drivers/ogc/gamecube/GameCubePlatform.h"
-#endif
-
-#if defined(HW_RVL) || defined(HW_DOL)
-#include "drivers/ogc/videofilters.h"
-#endif
-
-#ifdef __WIIU__
 #include "drivers/wut/WutInputDriver.h"
 #include "drivers/wut/WutUpscaleFilters.h"
-#endif
-
-#include "snes9x/port.h"
-#include "snes9x/snes9x.h"
-#include "snes9x/fxemu.h"
-#include "snes9x/memmap.h"
-#include "snes9x/apu/apu.h"
-#include "snes9x/cheats.h"
-
-extern SCheatData Cheat;
-extern void ToggleCheat(uint32);
 
 #define THREAD_SLEEP 100
 
@@ -424,47 +401,43 @@ static void CreditsWindow()
 	MenuDialogShape creditsBoxImg(MENU_CREDITS_W, MENU_CREDITS_H, MENU_CREDITS_HEADER_H);
 	creditsWindowBox.append(&creditsBoxImg);
 
-	int numEntries = 22;
+	// the lines: left column, right column, vertical advance after the pair
+	struct CreditLine { const char * left; const char * right; int advance; };
+	static const CreditLine lines[] = {
+		{ "Wii U port, GX2 renderer",     "orenatobr",            24 },
+		{ "Menu & Wii U drivers",         "Daryl Borth (dborth)", 24 },
+		{ "Menu sound",                   "Peter de Man",         48 },
+		{ "not64 / Wii64 / Mupen64GC",    "Extrems, tehpola,",    24 },
+		{ nullptr,                        "sepp256, emu_kidid",   24 },
+		{ "glN64",                        "Orkin",                24 },
+		{ "Mupen64",                      "Hacktarux",            24 },
+		{ "wut / devkitPPC",              "Wii U toolchain devs", 24 },
+	};
+
+	int numEntries = 1 /*title*/ + 1 /*site*/ + 3 /*console info*/ + 3 /*license*/;
+	for(const CreditLine & l : lines)
+		numEntries += (l.left ? 1 : 0) + 1;
+
 	GuiText * txt[numEntries];
 
 	// the title sits on the dialog's chrome band, so it is white; the credits start below the band
 	txt[i] = new GuiText("Credits", 30, (PixelColor){255, 255, 255, 255});
 	txt[i]->setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP); txt[i]->setPosition(0, MENU_CREDITS_TITLE_Y); i++; y+=56;
 
-	txt[i] = new GuiText("Official Site: https://github.com/dborth/snes9xgx", 20, (PixelColor){0, 0, 0, 255});
+	txt[i] = new GuiText("Official Site: https://github.com/orenatobr/not64-wiiu", 20, (PixelColor){0, 0, 0, 255});
 	txt[i]->setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP); txt[i]->setPosition(0,y); i++; y+=40;
 
 	GuiText::setPresets(20, (PixelColor){0, 0, 0, 255}, 0, GUI_TEXT_JUSTIFY_LEFT | GUI_TEXT_ALIGN_TOP, ALIGN_H::LEFT, ALIGN_V::TOP);
-	txt[i] = new GuiText("Coding & menu design");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("Tantric");
-	txt[i]->setPosition(350,y); i++; y+=24;
-	txt[i] = new GuiText("Additional improvements");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("Zopenko, michniewski");
-	txt[i]->setPosition(350,y); i++; y+=24;
-	txt[i] = new GuiText("InfiniteBlue, others");
-	txt[i]->setPosition(350,y); i++; y+=24;
-	txt[i] = new GuiText("Menu sound");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("Peter de Man");
-	txt[i]->setPosition(350,y); i++; y+=48;
-
-	txt[i] = new GuiText("Snes9x GX GameCube");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("SoftDev, crunchy2,");
-	txt[i]->setPosition(350,y); i++; y+=24;
-	txt[i] = new GuiText("eke-eke, others");
-	txt[i]->setPosition(350,y); i++; y+=24;
-	txt[i] = new GuiText("Snes9x");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("Snes9x Team");
-	txt[i]->setPosition(350,y); i++; y+=24;
-
-	txt[i] = new GuiText("libogc / devkitPPC");
-	txt[i]->setPosition(60,y); i++;
-	txt[i] = new GuiText("shagkur & WinterMute");
-	txt[i]->setPosition(350,y); i++; y+=24;
+	for(const CreditLine & l : lines)
+	{
+		if(l.left)
+		{
+			txt[i] = new GuiText(l.left);
+			txt[i]->setPosition(60,y); i++;
+		}
+		txt[i] = new GuiText(l.right);
+		txt[i]->setPosition(350,y); i++; y+=l.advance;
+	}
 
 	char consoleDetails[40];
 	char memoryFreeInfo[50];
@@ -489,7 +462,7 @@ static void CreditsWindow()
 
 	GuiText::setPresets(12, (PixelColor){0, 0, 0, 255}, 0, GUI_TEXT_JUSTIFY_CENTER | GUI_TEXT_ALIGN_TOP, ALIGN_H::CENTRE, ALIGN_V::BOTTOM);
 
-	txt[i] = new GuiText("Snes9x - Copyright (c) Snes9x Team 1996 - 2023");
+	txt[i] = new GuiText("not64 - Copyright (c) Wii64 team and Extrems, Mupen64 - Copyright (c) Hacktarux");
 	txt[i]->setPosition(0,-44); i++;
 	txt[i] = new GuiText("This software is open source and may be copied, distributed, or modified ");
 	txt[i]->setPosition(0,-32); i++;
@@ -1099,63 +1072,16 @@ static bool WaitForQueuedTasks()
  * while it happens.
  * \return false if the app was asked to quit
  ***************************************************************************/
-struct AutoSaveJob
-{
-	SRAMSnapshot * sram;
-	StateSnapshot * state;
-};
-
-// Runs on the worker thread, and owns the job
-static int AutoSaveTask(void * arg)
-{
-	AutoSaveJob * job = (AutoSaveJob *)arg;
-
-	if(job->sram)
-		WriteSRAMSnapshot(job->sram, SILENT);
-	if(job->state)
-		WriteStateSnapshot(job->state, SILENT);
-
-	FreeSRAMSnapshot(job->sram);
-	FreeStateSnapshot(job->state);
-	delete job;
-	return 0;
-}
-
 static bool AutoSaveLeavingGame()
 {
 	// no game loaded, nothing that saves on its own, or nothing changed since it was saved
-	if(SNESROMSize == 0 || EmuSettings.saveMode == SAVEMODE_MANUAL || !LiveStateChanged())
+	if(!N64IsLoaded() || EmuSettings.saveMode == SAVEMODE_MANUAL || !LiveStateChanged())
 		return true;
 
-	// Capture everything now - the worker may not get to it until the user has
-	// already loaded another game
-	AutoSaveJob * job = new (std::nothrow) AutoSaveJob();
-
-	if(!job)
-		return true;
-
-	job->sram = EmuSettings.saveMode == SAVEMODE_GAMESAVE ? SnapshotSRAMAuto() : nullptr;
-	// in the menu, the screenshot is right unless something was loaded or reset there
-	job->state = EmuSettings.saveMode == SAVEMODE_SNAPSHOT ? SnapshotStateAuto(ScreenshotIsCurrent()) : nullptr;
-
-	if(!job->sram && !job->state)
-	{
-		delete job;
-		return true;
-	}
-
-	// what is captured is what the file is about to hold
-	if(job->state)
-		AutoSnapshotWritten();
-	if(job->sram)
-		CartridgeSaveWritten();
-
-	if(QueueBackgroundTask(AutoSaveTask, job))
-		return true;
-
-	// Worker unavailable or its queue is full (unlikely) - don't lose the save,
-	// wait for it instead
-	return RunWithGuiUpdates(AutoSaveTask, nullptr, job);
+	// the core is not thread safe: this runs here, on the thread that owns it. The
+	// game's own saves are written first, they are small and matter the most.
+	AutoSaveOnQuit(ScreenshotIsCurrent());
+	return true;
 }
 
 static int MenuGameSelection()
@@ -1486,9 +1412,6 @@ static void SelectButton(GuiWindow & page, GuiElement & button)
 	button.setState(STATE::SELECTED);
 }
 
-enum { SAVES_READY, SAVES_UNAVAILABLE, SAVES_QUIT };
-static int PrepareSaves();
-
 /****************************************************************************
  * MenuGame
  *
@@ -1509,7 +1432,7 @@ static int MenuGame()
 	}
 
 	char romTitle[512];
-	platform->getFileSystem()->nameToDisplay(Memory.ROMFilename, romTitle, sizeof(romTitle)); // raw name -> UTF-8 for display only
+	platform->getFileSystem()->nameToDisplay(n64RomName, romTitle, sizeof(romTitle)); // raw name -> UTF-8 for display only
 	GuiText titleTxt(nullptr, 22, (PixelColor){255, 255, 255, 255});
 	titleTxt.setRawText(romTitle);
 	titleTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
@@ -1530,15 +1453,8 @@ static int MenuGame()
 
 	MenuLargeButton resetBtn("Reset", &iconReset, 200, 150);
 
-	// Second row: the controller chip (a popover) and Game Settings, centred as a pair
-	UiScope ui;
-	bool controllerRequest = false;
-	GuiCard& controllerChip = MenuPopover_Chip(ui, MENU_BTN_NORMAL_W, "CONTROLLER", [](UiText& t){ t.set(ControllerChipValue()); });
-	controllerChip.onClick([&controllerRequest]{ controllerRequest = true; });
-	controllerChip.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
-	controllerChip.setPosition(-120, 296);
-
-	MenuButton gameSettingsBtn(MenuButtonShape::NORMAL, "Game Settings", ALIGN_H::CENTRE, ALIGN_V::TOP, 120, 290);
+	// Second row: Game Settings
+	MenuButton gameSettingsBtn(MenuButtonShape::NORMAL, "Game Settings", ALIGN_H::CENTRE, ALIGN_V::TOP, 0, 290);
 
 	MenuButton mainmenuBtn(MenuButtonShape::NORMAL, EmuSettings.autoloadGame ? "Exit" : "Main Menu", ALIGN_H::CENTRE, ALIGN_V::BOTTOM, 0, -35);
 
@@ -1556,7 +1472,6 @@ static int MenuGame()
 	w.append(&saveBtn);
 	w.append(&mappingBtn);
 	w.append(&resetBtn);
-	w.append(&controllerChip);
 	w.append(&gameSettingsBtn);
 
 	#ifndef HW_DOL
@@ -1565,8 +1480,6 @@ static int MenuGame()
 
 	w.append(&mainmenuBtn);
 	w.append(&closeBtn);
-
-	ui.attachTo(w);
 
 	menu->btnLogo.setAlignment(ALIGN_H::RIGHT, ALIGN_V::BOTTOM);
 	menu->btnLogo.setPosition(-50, -40);
@@ -1609,36 +1522,18 @@ static int MenuGame()
 
 		if(saveBtn.getState() == STATE::CLICKED)
 		{
-			const int prepared = PrepareSaves();
-			if(prepared == SAVES_QUIT)
-				return MENU_EXIT;
-			else if(prepared == SAVES_READY)
-				selection = MENU_GAME_SAVE;
-			else
-				SelectButton(w, saveBtn); // it could not be opened: the reason was shown, and this page carries on
+			selection = MENU_GAME_SAVE;
 		}
 		else if(mappingBtn.getState() == STATE::CLICKED)
 		{
 			MappingScreenOpenedBy(mappingBtn.getStateChan());
 			selection = MENU_GAMESETTINGS_MAPPINGS;
 		}
-		else if(controllerRequest)
-		{
-			controllerRequest = false;
-			// a popover beside the chip, over this screen, which stays drawn (dimmed) where it is
-			{
-				MenuPageDisabled pageDisabled;
-				ChooseController(GuiPopover::Anchor(controllerChip));
-			}
-			menu->mainWindow.changeFocus(&w);
-			w.resetState();
-			controllerChip.select();
-		}
 		else if(resetBtn.getState() == STATE::CLICKED)
 		{
 			if (WindowPrompt("Reset Game", "Are you sure that you want to reset this game? Any unsaved progress will be lost.", "OK", "Cancel"))
 			{
-				S9xSoftReset ();
+				N64Reset();
 				MarkLiveStateChanged();
 				FlushEmulatorAudio();
 				selection = MENU_EXIT;
@@ -1717,1193 +1612,137 @@ static int MenuGame()
 }
 
 /****************************************************************************
- * FindGameSaveNum
- *
- * Determines the save file number of the given file name
- * Returns -1 if none is found
- ***************************************************************************/
-static int FindGameSaveNum(char * savefile, bool exactIsAuto = false)
-{
-	int n = -1;
-	int romlen = strlen(Memory.ROMFilename);
-	int savelen = strlen(savefile);
-
-	int diff = savelen-romlen;
-
-	if(strncmp(savefile, Memory.ROMFilename, romlen) != 0)
-		return -1;
-
-	// The auto slot has no "Auto" in its name when the setting for that is off, and a game's save file may have
-	// always been named that way. Only the caller knows whether that name is the auto slot.
-	if(diff == 0)
-		return exactIsAuto ? 0 : -1;
-
-	if(savefile[romlen] == ' ')
-	{
-		if(diff == 5 && strncmp(&savefile[romlen+1], "Auto", 4) == 0)
-			n = 0; // found Auto save
-		else if(diff == 2 || diff == 3)
-			n = atoi(&savefile[romlen+1]);
-	}
-
-	if(n >= 0 && n < MAX_SAVES)
-		return n;
-	else
-		return -1;
-}
-
-/****************************************************************************
- * SaveScreenData / SaveListTask
- *
- * Finds this game's save files and decodes their screenshots on the worker
- * thread. Every save costs several requests to the storage device, and that
- * is slow on some platforms. Turning the decoded screenshots into
- * textures has to wait until we are back on the main thread.
- ***************************************************************************/
-struct SaveScreenData
-{
-	SaveList saves{};
-	GuiImageData::DecodedImage thumbs[MAX_SAVES + 1];
-};
-
-static int SaveListTask(void * arg)
-{
-	SaveScreenData * data = (SaveScreenData *)arg;
-	SaveList & saves = data->saves;
-	char filepath[1024];
-	char scrfile[1024];
-	char tmp[MAXJOLIET+1];
-	struct stat filestat;
-	struct tm * timeinfo;
-	int i, n, type, len2;
-	int j = 0;
-
-	int len = strlen(Memory.ROMFilename);
-
-	if(!platform->getFileSystem()->getPath(browser.dir, EmuSettings.saveDevice, EmuSettings.saveFolder))
-	{
-		saves.length = 0; // the save folder's path does not fit: there is nothing to list
-		return 0;
-	}
-	ParseDirectory(true, false, Memory.ROMFilename); // only this game's files - the folder holds every game's saves
-
-	// find matching files
-	AllocSaveBuffer();
-
-	for(i=0; i < browser.numEntries && j <= MAX_SAVES; i++)
-	{
-		len2 = strlen(browserList[i].filename);
-
-		if(len2 < 6 || len2-len < 4)
-			continue;
-
-		if(strncmp(&browserList[i].filename[len2-4], ".srm", 4) == 0)
-			type = FILE_SRAM;
-		else if(strncmp(&browserList[i].filename[len2-4], ".frz", 4) == 0)
-			type = FILE_STATE;
-		else
-			continue;
-
-		strcpy(tmp, browserList[i].filename);
-		tmp[len2-4] = 0;
-		n = FindGameSaveNum(tmp, type == FILE_SRAM);
-
-		if(n >= 0)
-		{
-			saves.type[j] = type;
-			saves.files[saves.type[j]][n] = 1;
-			strcpy(saves.filename[j], browserList[i].filename);
-
-			if(saves.type[j] == FILE_STATE)
-			{
-				char scrname[MAXJOLIET+1];
-				snprintf(scrname, sizeof(scrname), "%s.png", tmp);
-				if(platform->getFileSystem()->getPath(scrfile, EmuSettings.saveDevice, EmuSettings.saveFolder, scrname))
-				{
-					memset(savebuffer, 0, SAVEBUFFERSIZE);
-					if(LoadFile(scrfile, SILENT))
-						data->thumbs[j] = GuiImageData::decodeToRgba(savebuffer, 64, 48);
-				}
-			}
-			if (platform->getFileSystem()->getPath(filepath, EmuSettings.saveDevice, EmuSettings.saveFolder, saves.filename[j])
-				&& stat(filepath, &filestat) == 0)
-			{
-				timeinfo = localtime(&filestat.st_mtime);
-				strftime(saves.date[j], 20, "%a %b %d", timeinfo);
-				strftime(saves.time[j], 10, "%I:%M %p", timeinfo);
-			}
-			j++;
-		}
-	}
-
-	FreeSaveBuffer();
-	saves.length = j;
-	return j;
-}
-
-/****************************************************************************
- * SaveOpTask
- *
- * Loads, saves or deletes a single save file from the saves screen, on the
- * worker thread.
- ***************************************************************************/
-enum { SAVEOP_LOAD, SAVEOP_SAVE, SAVEOP_DELETE };
-
-struct SaveOpArgs
-{
-	int op;
-	int type; // FILE_SRAM / FILE_STATE
-	bool silent; // saving only: no "Save successful" box - the screen shows its own note
-	char filepath[1024];
-};
-static SaveOpArgs saveOpArgs; // static: the worker may still be running if the app exits mid-operation
-
-static int SaveOpTask(void * arg)
-{
-	SaveOpArgs * a = (SaveOpArgs *)arg;
-	char deletepath[1024];
-	int result = 0;
-
-	switch(a->op)
-	{
-		case SAVEOP_LOAD:
-			if(a->type == FILE_SRAM)
-				result = LoadSRAM(a->filepath, NOTSILENT);
-			else if(a->type == FILE_STATE)
-				result = LoadSnapshot(a->filepath, NOTSILENT);
-			break;
-
-		case SAVEOP_SAVE:
-			if(a->type == FILE_SRAM)
-				result = SaveSRAM(a->filepath, a->silent);
-			else if(a->type == FILE_STATE)
-				result = SaveSnapshot(a->filepath, a->silent);
-			break;
-
-		case SAVEOP_DELETE:
-			if(a->type == FILE_SRAM)
-			{
-				snprintf(deletepath, sizeof(deletepath), "%s", a->filepath);
-				deletepath[strlen(deletepath)-4] = 0;
-				strcat(deletepath, ".srm");
-				remove(deletepath); // Delete the *.srm file (Cartridge Save)
-			}
-			else if(a->type == FILE_STATE)
-			{
-				snprintf(deletepath, sizeof(deletepath), "%s", a->filepath);
-				deletepath[strlen(deletepath)-4] = 0;
-				strcat(deletepath, ".png");
-				remove(deletepath); // Delete the *.png file (Screenshot file)
-				snprintf(deletepath, sizeof(deletepath), "%s", a->filepath);
-				deletepath[strlen(deletepath)-4] = 0;
-				strcat(deletepath, ".frz");
-				remove(deletepath); // Delete the *.frz file (Snapshot file)
-			}
-			break;
-	}
-	return result;
-}
-
-// \return false if the app was asked to quit
-static bool RunSaveOp(int op, int type, const char * filepath, int * result, bool silent = false)
-{
-	if(!WaitForQueuedTasks()) return false;
-
-	saveOpArgs.op = op;
-	saveOpArgs.type = type;
-	saveOpArgs.silent = silent;
-	snprintf(saveOpArgs.filepath, sizeof(saveOpArgs.filepath), "%s", filepath);
-	return RunWithGuiUpdates(SaveOpTask, result, &saveOpArgs);
-}
-
-/****************************************************************************
- * LoadSaveScreenData / PrepareSaves
- *
- * LoadSaveScreenData fetches what the Saves screen shows, on the worker thread, while the GUI keeps drawing
- * whatever page is up. `out` is replaced only on success.
- * \return false if the app was asked to quit while waiting.
- ***************************************************************************/
-static bool LoadSaveScreenData(std::unique_ptr<SaveScreenData> & out)
-{
-	// an autosave still being written has to be on the device before it is listed
-	if(!WaitForQueuedTasks()) return false;
-
-	std::unique_ptr<SaveScreenData> fresh(new SaveScreenData);
-
-	if(!RunWithGuiUpdates(SaveListTask, nullptr, fresh.get()))
-	{
-		fresh.release(); // deliberately leaked - the worker may still be writing to it
-		return false;
-	}
-
-	// create the screenshot textures (main thread only)
-	for(int i = 0; i < fresh->saves.length; i++)
-	{
-		if(fresh->thumbs[i].valid())
-		{
-			auto thumb = std::make_unique<GuiImageData>();
-			if(thumb->uploadDecoded(std::move(fresh->thumbs[i])))
-				fresh->saves.previewImg[i] = std::move(thumb);
-		}
-	}
-	out = std::move(fresh);
-	return true;
-}
-
-static std::unique_ptr<SaveScreenData> preparedSaves;
-
-static int PrepareSaves()
-{
-	// static: the task may still be using it if the app is asked to quit
-	static ChangeInterfaceArgs ciArgs;
-	ciArgs.device = EmuSettings.saveDevice;
-	ciArgs.silent = NOTSILENT;
-
-	int changeOk = 0;
-	if(!RunWithGuiUpdates(ChangeInterfaceTask, &changeOk, &ciArgs))
-		return SAVES_QUIT;
-	if(!changeOk)
-		return SAVES_UNAVAILABLE;
-	if(!LoadSaveScreenData(preparedSaves))
-		return SAVES_QUIT;
-	return SAVES_READY;
-}
-
-/****************************************************************************
  * MenuGameSaves
  *
- * One screen for everything saved: a grid of snapshots (the whole game at
- * one moment) and under it the game's own save, the Cartridge Save, which
- * a game with no battery doesn't have. Choosing a card opens a popover
- * beside it with what can be done with that card, so the D-pad, the pointer
- * and touch all work the same way. The snapshot the game was started from
- * (or last saved to) is pinned first and tagged, and is what "Update" offers
- * to overwrite. The save file's backups are one step further: its popover
- * has a Backups row that opens a list of them.
+ * The ten save state slots of the game. Slot 0 is the Auto Snapshot that the
+ * Save Mode keeps for you. The first row switches between saving and loading.
  ***************************************************************************/
-enum { SAVEACT_LOAD, SAVEACT_UPDATE, SAVEACT_DELETE, SAVEACT_SAVENOW, SAVEACT_BACKUP, SAVEACT_BACKUPS, SAVEACT_RESTORE };
+#define SAVE_SLOTS 10
 
-// A button's width from its label: the words with `padX` either side, at least `minW` (the width English gets), at most
-// `maxW` (past it the words are cut to fit), so a longer translation gets a wider button.
-static int FitButtonWidth(GuiText & label, int minW, int padX, int maxW)
+static void SlotDescription(int slot, char * out, size_t outSize)
 {
-	int w = label.getTextWidth() + 2 * padX;
-	if(w < minW)
-		w = minW;
-	if(w > maxW)
+	char path[MAXPATHLEN];
+	struct stat st;
+
+	if(!N64StatePath(path, sizeof(path), slot) || stat(path, &st) != 0)
 	{
-		w = maxW;
-		label.setMaxWidth(maxW - 2 * padX);
-	}
-	return w;
-}
-
-#define SAVE_LIST_Y		116		// the grid's top, under the header bar
-#define SAVE_LIST_W		540
-#define SAVE_CARD_W		250	// a card of the browser, and the pitch from one column to the next: both are the
-#define SAVE_CARD_H		72	// browser's, repeated here for the note that stands in the empty column
-#define SAVE_COL_PITCH	258
-#define SAVE_POPOVER_W	240	// the card popovers: the longest hint ("Make a copy of the save") needs about this
-#define SAVE_MAX_BACKUPS	6	// the most the Backups list shows: a popover doesn't scroll
-#define SAVE_TOAST_W	224
-#define SAVE_TOAST_H	30
-#define SAVE_TOAST_PAD_L	40	// the toast's left edge to its words: the check mark is in between
-#define SAVE_TOAST_PAD_R	16
-#define SAVE_TOAST_FRAMES	120
-
-// What a card stands for
-struct SaveCard
-{
-	int save;		// index into the SaveList; -1 when there is no file yet (a "new" card)
-	int type;		// FILE_STATE / FILE_SRAM
-	int slot;		// the number in the file's name; 0 is the auto slot; -1 for a new snapshot
-	bool main;		// the game's own save file (slot 0 of the save file kind)
-	bool playing;	// the snapshot the game was started from
-	bool autoSnap = false;	// the Auto Snapshot (slot 0), or the place it will be: never overwritten by hand
-};
-
-// The slot number in a save file's name (0 for the auto slot), or -1
-static int SaveSlotOf(const char * filename, int type)
-{
-	char tmp[MAXJOLIET+1];
-	const int len = strlen(filename);
-
-	if(len < 5 || len > MAXJOLIET)
-		return -1;
-
-	snprintf(tmp, sizeof(tmp), "%s", filename);
-	tmp[len-4] = 0; // the extension
-	return FindGameSaveNum(tmp, type == FILE_SRAM);
-}
-
-static std::string SaveWhen(SaveList & saves, int i)
-{
-	std::string when = saves.date[i];
-	if(saves.time[i][0])
-		when += (when.empty() ? "" : ", ") + std::string(saves.time[i]);
-	return when;
-}
-
-// The files of one kind, the auto slot first and then the numbered ones, newest slot first
-static void SortSaveFiles(SaveList & saves, int type, std::vector<int> & found)
-{
-	std::sort(found.begin(), found.end(), [&saves, type](int a, int b)
-	{
-		const int sa = SaveSlotOf(saves.filename[a], type);
-		const int sb = SaveSlotOf(saves.filename[b], type);
-		if((sa == 0) != (sb == 0))
-			return sa == 0;
-		return sa > sb;
-	});
-}
-
-// The game's own save file, then its backups, as indexes into the SaveList
-static void FindSramFiles(SaveList & saves, std::vector<int> & found)
-{
-	found.clear();
-	for(int i = 0; i < saves.length; i++)
-		if(saves.type[i] == FILE_SRAM && SaveSlotOf(saves.filename[i], FILE_SRAM) >= 0)
-			found.push_back(i);
-
-	// a save file from before the slots, named for the game itself, is the game's save: other slot 0 files are not
-	const size_t romLen = strlen(Memory.ROMFilename);
-	bool legacy = false;
-	for(size_t k = 0; k < found.size(); k++)
-		legacy = legacy || (SaveSlotOf(saves.filename[found[k]], FILE_SRAM) == 0 && strlen(saves.filename[found[k]]) - 4 == romLen);
-	if(legacy)
-		found.erase(std::remove_if(found.begin(), found.end(), [&saves, romLen](int i)
-		{
-			return SaveSlotOf(saves.filename[i], FILE_SRAM) == 0 && strlen(saves.filename[i]) - 4 != romLen;
-		}), found.end());
-
-	SortSaveFiles(saves, FILE_SRAM, found);
-}
-
-// The cards. The Auto Snapshot is first, always: live (AUTO, tagged "Autosave") in Snapshot mode, and "Paused"
-// otherwise - or, in Snapshot mode before there is one, a note that it will be made. Then a New Snapshot card, the
-// snapshot we started from, and the numbered ones newest first. When the game has a save of its own, its pinned card
-// is last, and says how it is looked after: a card in Cartridge Save and Manual mode, a note in Snapshot mode (it is
-// inside the snapshots there, nothing to manage). A game without one gets a note, in Cartridge Save mode, that
-// nothing is saved on its own. The backups of the save file are not cards: they are listed in `backups` (indexes
-// into the SaveList), for its popover.
-static void BuildSaveCards(SaveList & saves, bool gameSave, std::vector<SaveEntry> & entries, std::vector<SaveCard> & cards, std::vector<int> & backups)
-{
-	entries.clear();
-	cards.clear();
-	backups.clear();
-
-	const int mode = EmuSettings.saveMode;
-	const bool autoLive = (mode == SAVEMODE_SNAPSHOT);
-	const char * playing = GetPlayingFrom();
-	char path[1024];
-	std::vector<int> found;
-	int playingIdx = -1;
-	int autoIdx = -1;
-	bool autoPlaying = false;	// the game was started from the Auto Snapshot (the usual case in Snapshot mode)
-
-	for(int i = 0; i < saves.length; i++)
-	{
-		if(saves.type[i] != FILE_STATE)
-			continue;
-
-		const int slot = SaveSlotOf(saves.filename[i], FILE_STATE);
-		if(slot < 0)
-			continue;
-
-		if(slot == 0)
-		{
-			autoIdx = i;
-			autoPlaying = playing[0] && MakeFilePath(path, FILE_STATE, saves.filename[i]) && strcmp(path, playing) == 0;
-		}
-		else if(playing[0] && MakeFilePath(path, FILE_STATE, saves.filename[i]) && strcmp(path, playing) == 0)
-			playingIdx = i;
-		else
-			found.push_back(i);
-	}
-	SortSaveFiles(saves, FILE_STATE, found);
-
-	auto addSnapshot = [&](int i, bool isPlaying)
-	{
-		SaveEntry e;
-		SaveCard c;
-		c.save = i;
-		c.type = FILE_STATE;
-		c.slot = SaveSlotOf(saves.filename[i], FILE_STATE);
-		c.main = false;
-		c.playing = isPlaying;
-		c.autoSnap = (c.slot == 0);
-		e.kind = SaveEntry::SAVE;
-		e.subtitle = SaveWhen(saves, i);
-		e.preview = saves.previewImg[i].get();
-		e.placeholder = "No image";
-		e.id = i;
-		if(c.autoSnap)
-		{
-			e.title = "Auto Snapshot";
-			e.badge = autoLive ? SaveEntry::BADGE_AUTO : SaveEntry::BADGE_AUTO_PAUSED;
-			e.tag = autoLive ? SaveEntry::TAG_AUTOSAVE : SaveEntry::TAG_PAUSED;
-			e.dimPreview = !autoLive;	// nothing is updating it in this Save Mode
-		}
-		else
-		{
-			e.title = TrFormat("Snapshot %d", c.slot);
-			e.badge = c.slot;
-			e.tag = isPlaying ? SaveEntry::TAG_PLAYING : SaveEntry::TAG_NONE;
-		}
-		entries.push_back(e);
-		cards.push_back(c);
-	};
-
-	if(autoIdx >= 0)
-		addSnapshot(autoIdx, autoPlaying);
-	else if(autoLive)
-	{
-		// it will be made when you leave the game: say so, in a note
-		SaveEntry e;
-		SaveCard c;
-		e.kind = SaveEntry::NEW;
-		e.info = true;
-		e.title = "Auto Snapshot";
-		e.subtitle = "Empty until you play";
-		e.placeholder = "Empty";
-		e.badge = SaveEntry::BADGE_AUTO;
-		c.save = -1; c.type = FILE_STATE; c.slot = 0; c.main = false; c.playing = false; c.autoSnap = true;
-		entries.push_back(e);
-		cards.push_back(c);
-	}
-
-	{
-		// With Snapshot mode on you need do nothing: this is an extra, and says so
-		SaveEntry e;
-		SaveCard c;
-		e.kind = SaveEntry::NEW;
-		e.title = autoLive ? "Manual Snapshot" : "New Snapshot";
-		e.subtitle = autoLive ? "Optional save point" : "Save this moment";
-		e.placeholder = "New";
-		c.save = -1; c.type = FILE_STATE; c.slot = -1; c.main = false; c.playing = false;
-		entries.push_back(e);
-		cards.push_back(c);
-	}
-
-	if(playingIdx >= 0)
-		addSnapshot(playingIdx, true);
-
-	for(size_t k = 0; k < found.size(); k++)
-		addSnapshot(found[k], false);
-
-	SaveEntry e;
-	SaveCard c;
-	c.save = -1; c.type = FILE_SRAM; c.slot = 0; c.main = true; c.playing = false;
-	e.pinned = true;
-
-	if(!gameSave)
-	{
-		// no battery: there is no save file. Snapshots are all there is, and in Cartridge Save mode that needs saying
-		if(mode != SAVEMODE_GAMESAVE)
-			return;
-
-		e.kind = SaveEntry::NEW;
-		e.info = true;
-		e.noBattery = true;
-		e.title = "No game save file";
-		e.subtitle = "This game doesn't have its own save feature. Use snapshots to save.";
-		c.slot = -1;
-		entries.push_back(e);
-		cards.push_back(c);
+		snprintf(out, outSize, "Empty");
 		return;
 	}
 
-	std::vector<int> sram;
-	FindSramFiles(saves, sram);
-	const bool haveMain = !sram.empty() && SaveSlotOf(saves.filename[sram[0]], FILE_SRAM) == 0;
-
-	e.kind = haveMain ? SaveEntry::SAVE : SaveEntry::NEW;	// with no file yet it is a card for writing it the first time
-	e.title = "Cartridge Save";
-	e.id = haveMain ? sram[0] : -1;
-	c.save = e.id;
-
-	if(mode == SAVEMODE_SNAPSHOT)
-	{
-		// the save file is part of every snapshot: nothing to manage, so a note. (A file left on disk from another
-		// Save Mode is not mentioned: it is not being updated, and its date would only mislead.)
-		e.info = true;
-		e.subtitle = "Saved inside your snapshots";
-		e.chip = "Autosave";
-		e.chipOn = true;
-	}
-	else if(mode == SAVEMODE_GAMESAVE)
-	{
-		e.subtitle = haveMain ? TrFormat("Saved %s", SaveWhen(saves, sram[0]).c_str()) : std::string("Empty until you play");
-		e.chip = "Autosave";
-		e.chipOn = true;
-	}
+	struct tm * t = localtime(&st.st_mtime);
+	if(t)
+		strftime(out, outSize, "%Y-%m-%d %H:%M", t);
 	else
-	{
-		e.subtitle = haveMain ? TrFormat("Saved %s", SaveWhen(saves, sram[0]).c_str()) : std::string("Not saved yet");
-		e.chip = "Saves when you do";
-		e.chipOn = false;
-	}
-
-	entries.push_back(e);
-	cards.push_back(c);
-
-	for(size_t k = haveMain ? 1 : 0; k < sram.size(); k++)
-		backups.push_back(sram[k]);
-}
-
-static SaveCard BackupCard(SaveList & saves, int index)
-{
-	SaveCard c;
-	c.save = index;
-	c.type = FILE_SRAM;
-	c.slot = SaveSlotOf(saves.filename[index], FILE_SRAM);
-	c.main = false;
-	c.playing = false;
-	return c;
-}
-
-// What can be done with a card: the rows of its popover and, for each, the action it stands for - and a footnote
-// for what the rows leave out. The row the cursor starts on is the likeliest and never the destructive one, except
-// Update on the snapshot we started from. What is automatic cannot be overwritten by hand: the Auto Snapshot has no
-// Update, and the Cartridge Save has no Save Now while Cartridge Save mode saves it itself. The Cartridge Save can
-// never be deleted (it is small and harmless); its backups, and the Auto Snapshot, can.
-static void SaveCardMenu(const SaveCard & card, int backupCount, std::vector<PickerItem> & items, std::vector<int> & acts, std::string & footnote)
-{
-	items.clear();
-	acts.clear();
-	footnote.clear();
-	const int mode = EmuSettings.saveMode;
-
-	auto add = [&items, &acts](int act, const char * name, const std::string & about, bool preferred, bool divider)
-	{
-		PickerItem it;
-		it.name = name;
-		it.hint = about;
-		it.current = false;
-		it.preferred = preferred;
-		it.divider = divider;
-		items.push_back(it);
-		acts.push_back(act);
-	};
-
-	// The Auto Snapshot, while Snapshot mode keeps it, is written when the game is left for good - not when
-	// you go to the menu - so it can be updated on request: after getting past the hard part, say. Paused
-	// (the Save Mode is another), nothing is updating it, and nothing here should.
-	const bool autoLive = card.type == FILE_STATE && card.autoSnap && mode == SAVEMODE_SNAPSHOT;
-
-	if(card.type == FILE_STATE && card.autoSnap && !autoLive)
-	{
-		add(SAVEACT_LOAD, "Load", "Jump to this moment", true, true);
-		add(SAVEACT_DELETE, "Delete", "Remove this snapshot", false, false);
-		items.back().danger = true;
-		footnote = (mode == SAVEMODE_GAMESAVE ? "Not updated while Save Mode is Cartridge Save."
-											: "Not updated while Save Mode is Manual.");
-	}
-	else if(card.type == FILE_STATE)
-	{
-		// Update leads for the snapshot we started from - except the Auto Snapshot, whose likeliest use after a
-		// trip to the menu is to go back to it, and where Update, as the first row, would overwrite the place you
-		// started from with the one you died at
-		if(card.playing && !card.autoSnap)
-		{
-			add(SAVEACT_UPDATE, "Update", "Replace with your progress now", true, false);
-			add(SAVEACT_LOAD, "Load", "Jump back to this moment", false, true);
-		}
-		else if(card.playing)
-		{
-			add(SAVEACT_LOAD, "Load", "Go back to where you left off", true, false);
-			add(SAVEACT_UPDATE, "Update", "Replace with your progress now", false, true);
-		}
-		else
-		{
-			add(SAVEACT_LOAD, "Load", "Jump to this moment", true, false);
-			add(SAVEACT_UPDATE, "Replace", "Overwrite with your progress", false, true);
-		}
-		add(SAVEACT_DELETE, "Delete", autoLive ? "Start fresh next time" : "Remove this snapshot", false, false);
-		items.back().danger = true;
-		if(autoLive)
-			footnote = "Saved when you leave the game, or when you update it.";
-	}
-	else if(card.main)
-	{
-		if(mode == SAVEMODE_MANUAL)
-		{
-			add(SAVEACT_SAVENOW, "Save Now", "Write the save to its file", true, false);
-			if(card.save >= 0)
-				add(SAVEACT_LOAD, "Load", "Use the saved file in the game", false, false);
-			items.back().divider = true;
-		}
-		else
-		{
-			// saved when the game is left for good, not when you go to the menu: so it can be saved on request too
-			add(SAVEACT_SAVENOW, "Save Now", "Write the save to its file", true, true);
-			footnote = "Saved when you leave the game, or when you save it.";
-		}
-
-		// Make Backup is inside, with the backups, so this list stays short enough to fit above the card
-		add(SAVEACT_BACKUPS, "Backups", backupCount > 0 ? TrFormat("Copy, or restore one of %d", backupCount) : std::string("Make a copy of the save"), false, false);
-		items.back().chevron = true;
-	}
-	else
-	{
-		add(SAVEACT_RESTORE, "Restore", "Use this as the cartridge's save", true, true);
-		add(SAVEACT_DELETE, "Delete", "Remove this backup", false, false);
-		items.back().danger = true;
-	}
+		snprintf(out, outSize, "Saved");
 }
 
 static int MenuGameSaves()
 {
 	int selection = MENU_NONE;
-	char filepath[1024];
+	int ret;
+	bool loadMode = (lastMenu == MENU_GAME_LOAD);
+	bool firstRun = true;
+	OptionList options;
 
-	// A game with no battery has no save file of its own: then there is nothing under the snapshots,
-	// and they get the room
-	const bool gameSave = GetSRAMSaveSize() > 0;
+	snprintf(options.name[0], sizeof(options.name[0]), "Action");
+	for(int slot = 0; slot < SAVE_SLOTS; slot++)
+	{
+		if(slot == 0)
+			snprintf(options.name[1], sizeof(options.name[1]), "Slot 0 (Auto Snapshot)");
+		else
+			snprintf(options.name[slot + 1], sizeof(options.name[slot + 1]), "Slot %d", slot);
+	}
+	options.length = SAVE_SLOTS + 1;
 
-	const MenuPalette & pal = MenuPaletteCurrent();
-	const PixelColor white = (PixelColor){255, 255, 255, 255};
+	for(int i = 0; i < options.length; i++)
+		options.value[i][0] = 0;
 
-	char romTitle[512];
-	platform->getFileSystem()->nameToDisplay(Memory.ROMFilename, romTitle, sizeof(romTitle)); // raw name -> UTF-8 for display only
-
-	GuiText titleTxt("Saves", 26, white);
+	GuiText titleTxt("Saves", 26, (PixelColor){255, 255, 255, 255});
 	titleTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
-	titleTxt.setPosition(50,24);
+	titleTxt.setPosition(50,50);
 
-	GuiText gameTxt(nullptr, 20, white);
-	gameTxt.setRawText(romTitle);
-	gameTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
-	gameTxt.setPosition(50,60);
+	GuiTrigger trigB;
+	trigB.setSecondaryTrigger();
 
-	GuiTrigger trigHome;
-	trigHome.setButtonOnlyTrigger(-1, INPUT_BTN_HOME);
+	MenuButton backBtn(MenuButtonShape::NORMAL, "Go Back", ALIGN_H::LEFT, ALIGN_V::BOTTOM, 50, -35, &trigB);
 
-	// Go Back, Save Mode and Close are as wide as their words need, so a longer translation gets a wider button rather
-	// than a cut-off label (English gets the usual widths). Go Back and Save Mode share the footer with the logo, so
-	// together they stop short of it.
-	const int footerRoom = 390;	// the left margin to the logo, less a gap
-	GuiText backBtnTxt("Go Back", 22, (PixelColor){0, 0, 0, 255});
-	const int backBtnW = FitButtonWidth(backBtnTxt, 140, 24, 200);
-	MenuButtonShape backBtnImg(MenuButtonShape::NORMAL);
-	backBtnImg.setSize(backBtnW, MENU_BTN_NORMAL_H);
-	GuiButton backBtn(backBtnW, MENU_BTN_NORMAL_H);
-	backBtn.setAutoFit(false);	// sized above, with the buttons beside it placed from that
-	backBtn.setAlignment(ALIGN_H::LEFT, ALIGN_V::BOTTOM);
-	backBtn.setPosition(50, -35);
-	backBtn.setLabel(&backBtnTxt);
-	backBtn.setImage(&backBtnImg);
-	backBtn.setTrigger(trigA);
-	backBtn.setEffectGrow();
-
-	GuiText closeBtnTxt("Close", 20, (PixelColor){0, 0, 0, 255});
-	const int closeBtnW = FitButtonWidth(closeBtnTxt, MENU_BTN_SMALL_W, 22, 190);
-	MenuButtonShape closeBtnImg(MenuButtonShape::SMALL);
-	closeBtnImg.setSize(closeBtnW, MENU_BTN_SMALL_H);
-	GuiButton closeBtn(closeBtnW, MENU_BTN_SMALL_H);
-	closeBtn.setAutoFit(false);	// sized above, with the buttons beside it placed from that
-	closeBtn.setAlignment(ALIGN_H::RIGHT, ALIGN_V::TOP);
-	closeBtn.setPosition(-50, 35);
-	closeBtn.setLabel(&closeBtnTxt);
-	closeBtn.setImage(&closeBtnImg);
-	closeBtn.setTrigger(trigA);
-	closeBtn.setTrigger(&trigHome);
-	closeBtn.setSoundClick(nullptr);
-	closeBtn.setEffectGrow();
-
-	// Save Mode: what is saved and loaded on its own. A button as tall as Go Back, beside it, that opens a list of
-	// the three modes. It says which one is on.
-	static const char * const modeNames[SAVEMODE_LENGTH] = { "Snapshot", "Cartridge Save", "Manual" };
-	static const char * const modeHelps[SAVEMODE_LENGTH] = {
-		"Picks up exactly where you left off, as if you never turned the console off.",
-		"Like a real console: the game's own save is kept for you, and the game starts fresh each time.",
-		"Nothing is saved or loaded unless you do it yourself." };
-	GuiText modeLabelTxt("Save Mode", 12, (PixelColor){90, 90, 90, 255});
-	modeLabelTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::MIDDLE);
-	modeLabelTxt.setPosition(22, -11);
-	GuiText modeValueTxt(modeNames[EmuSettings.saveMode], 18, (PixelColor){0, 0, 0, 255});
-	modeValueTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::MIDDLE);
-	modeValueTxt.setPosition(22, 9);
-
-	// wide enough for the label and the longest of the three values, so the button does not change size with the mode
-	// (the words, the chevron's gap and both edges take 70)
-	int modeTextW = modeLabelTxt.getTextWidth();
-	for(int k = 0; k < SAVEMODE_LENGTH; k++)
-	{
-		GuiText probe(modeNames[k], 18, (PixelColor){0, 0, 0, 255});
-		if(probe.getTextWidth() > modeTextW)
-			modeTextW = probe.getTextWidth();
-	}
-	const int modeBtnRoom = (footerRoom - 16 - backBtnW) > 120 ? (footerRoom - 16 - backBtnW) : 120;
-	int modeBtnW = modeTextW + 70;
-	if(modeBtnW < 176)
-		modeBtnW = 176;
-	if(modeBtnW > modeBtnRoom)
-	{
-		modeBtnW = modeBtnRoom;
-		modeLabelTxt.setMaxWidth(modeBtnW - 70);
-		modeValueTxt.setMaxWidth(modeBtnW - 70);
-	}
-	GuiShape modeChevron(12, 8);
-	modeChevron.setArrow(SHAPE::TRIANGLE_UP, pal.accent, pal.accent);	// it opens upward
-	modeChevron.setAlignment(ALIGN_H::RIGHT, ALIGN_V::MIDDLE);
-	modeChevron.setPosition(-22, 0);
-	MenuButtonShape modeBtnImg(MenuButtonShape::NORMAL);
-	modeBtnImg.setSize(modeBtnW, MENU_BTN_NORMAL_H);
-	GuiButton modeBtn(modeBtnW, MENU_BTN_NORMAL_H);
-	modeBtn.setAutoFit(false);	// sized above, with the buttons beside it placed from that
-	modeBtn.setAlignment(ALIGN_H::LEFT, ALIGN_V::BOTTOM);
-	modeBtn.setPosition(50 + backBtnW + 16, -35);
-	modeBtn.setLabel(&modeLabelTxt, 0);
-	modeBtn.setLabel(&modeValueTxt, 1);
-	modeBtn.setImage(&modeBtnImg);
-	modeBtn.setIcon(&modeChevron);
-	modeBtn.setTrigger(trigA);
-	modeBtn.setEffectGrow();
-
-	// Shown beside a lone "New Snapshot" card, in the grid's second column. It is a card of its own - dark and
-	// translucent, the size of the cards, not clickable - so the words read over any picture, and it looks
-	// like a note next to the white cards you can choose.
-	const int emptyX = (platform->getVideo()->getScreenWidth() - SAVE_LIST_W) / 2 + SAVE_COL_PITCH;
-	GuiShape emptyCard(SAVE_CARD_W, SAVE_CARD_H);
-	emptyCard.setCorners(GuiCorners(GuiTheme::current().radius));
-	emptyCard.setPaint(GuiPaint().color(MenuRGBA(0, 0, 0, 150)).stroke(1.5f, MenuRGBA(255, 255, 255, 80)));
-	emptyCard.setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
-	emptyCard.setPosition(emptyX, SAVE_LIST_Y);
-	emptyCard.setVisible(false);
-	GuiText emptyTitle("No snapshots yet", 16, white);
-	GuiText emptyLine0("Remembers the exact moment, so you", 13, white);
-	GuiText emptyLine1("can jump back to it any time.", 13, white);
-	GuiText * emptyTexts[3] = { &emptyTitle, &emptyLine0, &emptyLine1 };
-	const int emptyTextY[3] = { 11, 35, 52 };
-	for(int k = 0; k < 3; k++)
-	{
-		emptyTexts[k]->setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
-		emptyTexts[k]->setPosition(emptyX + 16, SAVE_LIST_Y + emptyTextY[k]);
-		emptyTexts[k]->setVisible(false);
-	}
-
-	// the note that says what a save did, over the bottom of the list
-	GuiText toastTxt(nullptr, 16, white);
-	toastTxt.setAlignment(ALIGN_H::CENTRE, ALIGN_V::MIDDLE);
-	toastTxt.setPosition(14, 0);
-	MenuCheckIcon toastCheck(20, white, pal.accentDark);
-	toastCheck.setAlignment(ALIGN_H::LEFT, ALIGN_V::MIDDLE);
-	toastCheck.setPosition(10, 0);
-	GuiShape toastShape(SAVE_TOAST_W, SAVE_TOAST_H);
-	toastShape.setCorners(GuiCorners(SAVE_TOAST_H / 2.0f));
-	toastShape.setStyle(GuiShapeStyle(GuiPaint().gradient(pal.accent, pal.accentDark).stroke(2.0f, pal.glow)));
-	GuiButton toastBtn(SAVE_TOAST_W, SAVE_TOAST_H);
-	toastBtn.setAlignment(ALIGN_H::CENTRE, ALIGN_V::BOTTOM);
-	toastBtn.setPosition(0, -(MENU_BAR_BOTTOM_H + 4));
-	toastBtn.setLabel(&toastTxt);
-	toastBtn.setImage(&toastShape);
-	toastBtn.setIcon(&toastCheck);
-	toastBtn.setSelectable(false);
-	toastBtn.setVisible(false);
-	int toastFrames = 0;
+	GuiOptionBrowser optionBrowser(MENU_OPTIONS_W, MENU_OPTIONS_H, &options);
+	optionBrowser.setPosition(0, MENU_LIST_Y);
+	optionBrowser.setCol2Position(260);
+	optionBrowser.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
 
 	GuiWindow w(platform->getVideo()->getScreenWidth(), platform->getVideo()->getScreenHeight());
 	w.append(&backBtn);
-	w.append(&modeBtn);
-	w.append(&closeBtn);
+	menu->mainWindow.appendWithAutoRemove(&optionBrowser);
 	menu->mainWindow.appendWithAutoRemove(&w);
 	menu->mainWindow.appendWithAutoRemove(&titleTxt);
-	menu->mainWindow.appendWithAutoRemove(&gameTxt);
-	menu->mainWindow.appendWithAutoRemove(&emptyCard);
-	for(int k = 0; k < 3; k++)
-		menu->mainWindow.appendWithAutoRemove(emptyTexts[k]);
-
-	// two rows of snapshots with the save file (or a note about it) under them, or three rows with nothing under them
-	GuiSaveBrowser saveBrowser(SAVE_LIST_W, 2);
-	saveBrowser.setPosition(0, SAVE_LIST_Y);
-	saveBrowser.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
-	menu->mainWindow.appendWithAutoRemove(&saveBrowser);
-	menu->mainWindow.appendWithAutoRemove(&toastBtn);
-
-	std::unique_ptr<SaveScreenData> data = std::move(preparedSaves);
-	auto loadSaves = [&data]() -> bool { return LoadSaveScreenData(data); };
-
-	std::vector<SaveEntry> entries;
-	std::vector<SaveCard> cards;
-	std::vector<int> backups;
-
-	// Shows the cards, with the cursor on the card of kind `selType` (FILE_STATE / FILE_SRAM) and slot `selSlot`, or with
-	// `selType` -1 on the card at `selPos` (or the last one of the grid, when that is gone)
-	auto showCards = [&](int selType, int selSlot, int selPos)
-	{
-		BuildSaveCards(data->saves, gameSave, entries, cards, backups);
-		saveBrowser.setRows((!entries.empty() && entries.back().pinned) ? 2 : 3);
-
-		const int gridCount = (int)entries.size() - ((!entries.empty() && entries.back().pinned) ? 1 : 0);
-		int select = selPos;
-		for(size_t k = 0; selType >= 0 && k < cards.size(); k++)
-			if(cards[k].type == selType && cards[k].slot == selSlot)
-				select = (int)k;
-		if(selType < 0 && select >= gridCount)
-			select = gridCount - 1;
-		if(select >= (int)entries.size())
-			select = (int)entries.size() - 1;
-		if(select < 0)
-			select = 0;
-
-		saveBrowser.setEntries(entries, select);
-
-		const bool onlyNew = (gridCount == 1);
-		emptyCard.setVisible(onlyNew);
-		for(int k = 0; k < 3; k++)
-			emptyTexts[k]->setVisible(onlyNew);
-
-		menu->mainWindow.changeFocus(&saveBrowser);
-	};
-
-	auto showToast = [&](const std::string & text)
-	{
-		// as wide as the words need (a translation can be much longer than English), within the screen's margins
-		toastTxt.setMaxWidth(0);
-		toastTxt.setRawText(text.c_str());
-		int toastW = toastTxt.getTextWidth() + SAVE_TOAST_PAD_L + SAVE_TOAST_PAD_R;
-		if(toastW < SAVE_TOAST_W)
-			toastW = SAVE_TOAST_W;
-		const int toastMaxW = platform->getVideo()->getScreenWidth() - 2 * MENU_PAGE_MARGIN;
-		if(toastW > toastMaxW)
-		{
-			toastW = toastMaxW;
-			toastTxt.setMaxWidth(toastMaxW - SAVE_TOAST_PAD_L - SAVE_TOAST_PAD_R);
-		}
-		toastShape.setSize(toastW, SAVE_TOAST_H);
-		toastBtn.setSize(toastW, SAVE_TOAST_H);
-		toastTxt.setPosition((SAVE_TOAST_PAD_L - SAVE_TOAST_PAD_R) / 2, 0);
-		toastBtn.setVisible(true);
-		toastFrames = SAVE_TOAST_FRAMES;
-	};
-
-	// the first free slot (1-99) of a kind of file, or -1
-	auto freeSlot = [&](int type) -> int
-	{
-		for(int s = 1; s < 100; s++)
-			if(data->saves.files[type][s] == 0)
-				return s;
-		return -1;
-	};
-
-	// What to do with a card, asked in popovers beside it. The save file's popover leads on to its backups: a list
-	// of them, then what to do with the one picked (which then becomes `card`). B steps back to the one before.
-	// The action chosen (a SAVEACT_*), or -1.
-	auto askAction = [&](SaveCard & card, SaveEntry & entry, const GuiPopover::Anchor & anchor) -> int
-	{
-		PickerOptions narrow;
-		narrow.width = SAVE_POPOVER_W;
-		std::vector<PickerItem> items;
-		std::vector<int> acts;
-
-		while(true)
-		{
-			std::string footnote;
-			SaveCardMenu(card, (int)backups.size(), items, acts, footnote);
-			PickerOptions note;
-			note.width = SAVE_POPOVER_W;
-			note.footnote = Tr(footnote.c_str());
-			const int chosen = MenuPopover_Pick("", items, anchor, nullptr, nullptr, &note);
-			if(chosen < 0 || (size_t)chosen >= acts.size())
-				return -1;
-			if(acts[(size_t)chosen] != SAVEACT_BACKUPS)
-				return acts[(size_t)chosen];
-
-			while(true)
-			{
-				std::vector<PickerItem> list;
-				const size_t shown = std::min(backups.size(), (size_t)SAVE_MAX_BACKUPS);
-
-				// Make Backup first, then the ones there are
-				PickerItem make;
-				make.name = "Make Backup";
-				make.hint = "Copy the cartridge's save now";
-				make.current = false;
-				make.preferred = true;
-				make.divider = shown > 0;
-				list.push_back(make);
-
-				for(size_t k = 0; k < shown; k++)
-				{
-					PickerItem it;
-					it.name = TrFormat("Backup %d", SaveSlotOf(data->saves.filename[backups[k]], FILE_SRAM));
-					it.hint = SaveWhen(data->saves, backups[k]);
-					it.current = false;
-					list.push_back(it);
-				}
-
-				const int picked = MenuPopover_Pick("", list, anchor, nullptr, nullptr, &narrow);
-				if(picked < 0 || (size_t)picked > shown)
-					break;	// back to the save file's popover
-				if(picked == 0)
-					return SAVEACT_BACKUP;
-
-				const SaveCard backup = BackupCard(data->saves, backups[(size_t)picked - 1]);
-				std::vector<PickerItem> what;
-				std::vector<int> whatActs;
-				std::string noNote;
-				SaveCardMenu(backup, 0, what, whatActs, noNote);
-				const int doing = MenuPopover_Pick("", what, anchor, nullptr, nullptr, &narrow);
-				if(doing < 0 || (size_t)doing >= whatActs.size())
-					continue;	// back to the list of backups
-
-				card = backup;
-				entry.title = TrFormat("Backup %d", backup.slot);
-				return whatActs[(size_t)doing];
-			}
-		}
-	};
-
-	if(!data)
-		return MENU_GAME; // not prepared: there is nothing to show
-
-	showCards(-1, -1, 0);
 
 	while(selection == MENU_NONE)
 	{
 		if(!UpdateGui()) return MENU_EXIT;
 
-		if(toastFrames > 0 && --toastFrames == 0)
-			toastBtn.setVisible(false);
+		ret = optionBrowser.getClickedOption();
 
-		const int pos = saveBrowser.getClickedSave();
-
-		if(pos >= 0 && pos < (int)cards.size())
+		if(ret == 0)
 		{
-			SaveCard card = cards[(size_t)pos];
-			SaveEntry entry = entries[(size_t)pos];
-			int act = -1;
-
-			if(entry.info)
-			{
-				// a note, not a card: the browser does not let it be chosen, so this is only a safeguard
-			}
-			else if(card.type == FILE_STATE && card.save < 0)
-			{
-				act = SAVEACT_UPDATE; // New Snapshot: it only ever adds one, so there is nothing to ask
-			}
-			else
-			{
-				// popovers beside the card, over this screen, which keeps the card highlighted but takes no input
-				{
-					MenuPageDisabled pageDisabled;
-					act = askAction(card, entry, saveBrowser.getEntryAnchor(pos));
-				}
-				saveBrowser.resetState();
-				menu->mainWindow.changeFocus(&saveBrowser);
-			}
-
-			if(act >= 0)
-			{
-				int result = 0;
-				int newSlot = -1;
-				bool changed = false;	// the list of files changed: look again
-				const char * saved = nullptr;
-
-				if(card.save >= 0)
-					MakeFilePath(filepath, card.type, data->saves.filename[card.save]);
-
-				switch(act)
-				{
-					case SAVEACT_LOAD:
-					case SAVEACT_RESTORE:
-						if(!RunSaveOp(SAVEOP_LOAD, card.type, filepath, &result))
-							return MENU_EXIT;
-						if(result && card.type == FILE_STATE)
-							FlushEmulatorAudio(); // the loaded Snapshot replaces what was playing
-						if(result)
-							selection = MENU_EXIT;	// back to the game
-						break;
-
-					case SAVEACT_UPDATE: // Update / Replace / a New Snapshot
-					{
-						if(card.save < 0)
-						{
-							newSlot = freeSlot(FILE_STATE);
-							if(newSlot < 0)
-							{
-								ErrorPrompt("All 99 snapshot slots are in use. Delete one to make room.");
-								break;
-							}
-							MakeFilePath(filepath, FILE_STATE, Memory.ROMFilename, newSlot);
-						}
-						else if(!card.playing && !WindowPrompt(TrMessage<>("Replace %s?", Tr(entry.title.c_str())),
-							"It will be overwritten with your progress right now.", "Replace", "Cancel"))
-							break;
-
-						if(!RunSaveOp(SAVEOP_SAVE, FILE_STATE, filepath, &result, true))
-							return MENU_EXIT;
-
-						if(result)
-						{
-							changed = true;
-							if(newSlot >= 0)
-							{
-								saved = "%s saved";
-							}
-							else
-							{
-								newSlot = card.slot;
-								saved = "%s updated";
-							}
-
-							if(card.autoSnap)
-								AutoSnapshotWritten();	// asked for by hand, but it is the autosave all the same
-						}
-						else
-							ErrorPrompt("Save failed!");
-						break;
-					}
-
-					case SAVEACT_SAVENOW:
-					case SAVEACT_BACKUP:
-					{
-						int slot = 0;
-						if(act == SAVEACT_BACKUP)
-						{
-							slot = freeSlot(FILE_SRAM);
-							if(slot < 0 || (int)backups.size() >= SAVE_MAX_BACKUPS)
-							{
-								ErrorPrompt(TrMessage<>("All %d backup slots are in use. Delete one to make room.", SAVE_MAX_BACKUPS));
-								break;
-							}
-						}
-						if(act == SAVEACT_BACKUP || card.save < 0)	// Save Now on a file that exists writes that very file
-							MakeFilePath(filepath, FILE_SRAM, Memory.ROMFilename, slot);
-
-						if(!RunSaveOp(SAVEOP_SAVE, FILE_SRAM, filepath, &result, true))
-							return MENU_EXIT;
-
-						if(result)
-						{
-							changed = true;
-							newSlot = slot;
-							saved = (act == SAVEACT_BACKUP) ? "%s saved" : "%s updated";
-
-							if(act == SAVEACT_SAVENOW)
-								CartridgeSaveWritten();
-						}
-						else
-							ErrorPrompt("Save failed!");
-						break;
-					}
-
-					case SAVEACT_DELETE:
-					{
-						std::string question = TrFormat("Delete %s?", Tr(entry.title.c_str()));
-						const char * detail = "This can't be undone.";
-						if(card.autoSnap && EmuSettings.saveMode == SAVEMODE_SNAPSHOT)
-							detail = "Next time you open this game it starts from its Cartridge Save, or from the beginning. This can't be undone.";
-						else if(card.autoSnap)
-							detail = "It is not being updated in the current Save Mode. This can't be undone.";
-						else if(card.playing)
-							detail = "This is the snapshot you started from. This can't be undone.";
-
-						if(!WindowPrompt(question.c_str(), detail, "Delete", "Cancel"))
-							break;
-
-						if(!RunSaveOp(SAVEOP_DELETE, card.type, filepath, &result))
-							return MENU_EXIT;
-
-						if(card.type == FILE_STATE && strcmp(filepath, GetPlayingFrom()) == 0)
-							ClearPlayingFrom(); // or the next snapshot to take this slot would look like the one we started from
-
-						changed = true;
-						break;
-					}
-				}
-
-				if(changed && selection == MENU_NONE)
-				{
-					if(!loadSaves())
-						return MENU_EXIT;
-
-					// the cursor stays where it was: on the save file for anything done to it or its backups, on the
-					// snapshot just written, or where a deleted snapshot was
-					if(card.type == FILE_SRAM)
-						showCards(FILE_SRAM, 0, pos);
-					else if(act == SAVEACT_DELETE)
-						showCards(-1, -1, pos);
-					else
-						showCards(FILE_STATE, newSlot, pos);
-
-					if(saved)
-					{
-						std::string what = (card.type == FILE_SRAM)
-							? (newSlot == 0 ? Tr("Cartridge Save") : TrFormat("Backup %d", newSlot))
-							: (newSlot == 0 ? Tr("Auto Snapshot") : TrFormat("Snapshot %d", newSlot));
-						showToast(TrFormat(saved, what.c_str()));
-					}
-				}
-			}
+			loadMode = !loadMode;
 		}
-
-		if(modeBtn.getState() == STATE::CLICKED)
+		else if(ret > 0)
 		{
-			modeBtn.resetState();
+			const int slot = ret - 1;
+			char question[160];
 
-			std::vector<PickerItem> modes;
-			for(int k = 0; k < SAVEMODE_LENGTH; k++)
+			if(loadMode)
 			{
-				PickerItem it;
-				it.name = Tr(modeNames[k]);
-				it.hint = Tr(modeHelps[k]);
-				it.current = (k == EmuSettings.saveMode);
-				it.preferred = it.current;
-				it.divider = false;
-				modes.push_back(it);
-			}
-			PickerOptions wide;
-			wide.width = 340;	// the longest help wraps to two lines at this width
-
-			int chosen;
-			{
-				MenuPageDisabled pageDisabled;
-				chosen = MenuPopover_Pick("Save Mode", modes, GuiPopover::Anchor(modeBtn), nullptr, nullptr, &wide);
-			}
-			saveBrowser.resetState();
-
-			if(chosen >= 0 && chosen < SAVEMODE_LENGTH && chosen != EmuSettings.saveMode)
-			{
-				EmuSettings.saveMode = chosen;
-				modeValueTxt.setText(modeNames[chosen]);
-				const int was = saveBrowser.getSelectedPosition();
-				if(was >= 0 && was < (int)cards.size())
-					showCards(cards[(size_t)was].type, cards[(size_t)was].slot, 0);
+				if(!N64StateExists(slot))
+				{
+					InfoPrompt("This slot is empty.");
+				}
 				else
-					showCards(-1, -1, 0);
-				showToast(TrFormat("Save Mode: %s", Tr(modeNames[chosen])));
+				{
+					snprintf(question, sizeof(question), "Load the state in slot %d? Any unsaved progress will be lost.", slot);
+					if(WindowPrompt("Load State", question, "Load", "Cancel") && N64LoadState(slot, NOTSILENT))
+					{
+						MarkLiveStateChanged();
+						FlushEmulatorAudio();
+						selection = MENU_EXIT;
+					}
+				}
 			}
 			else
-				menu->mainWindow.changeFocus(&saveBrowser);
-		}
-		else if(backBtn.getState() == STATE::CLICKED)
-		{
-			selection = MENU_GAME;
-		}
-		else if(closeBtn.getState() == STATE::CLICKED)
-		{
-			selection = MENU_EXIT;
-
-			exitSound->play();
-			menu->bgTopImg.setEffect(EFFECT::SLIDE_TOP | EFFECT::SLIDE_OUT, 15);
-			closeBtn.setEffect(EFFECT::SLIDE_TOP | EFFECT::SLIDE_OUT, 15);
-			titleTxt.setEffect(EFFECT::SLIDE_TOP | EFFECT::SLIDE_OUT, 15);
-			backBtn.setEffect(EFFECT::SLIDE_BOTTOM | EFFECT::SLIDE_OUT, 15);
-			menu->bgBottomImg.setEffect(EFFECT::SLIDE_BOTTOM | EFFECT::SLIDE_OUT, 15);
-			menu->btnLogo.setEffect(EFFECT::SLIDE_BOTTOM | EFFECT::SLIDE_OUT, 15);
-
-			w.setEffect(EFFECT::FADE, -15);
-
-			while(w.getEffect() > 0)
 			{
-				if(!UpdateGui()) return MENU_EXIT;
+				bool doSave = true;
+				if(N64StateExists(slot))
+				{
+					snprintf(question, sizeof(question), "Overwrite the state in slot %d?", slot);
+					doSave = WindowPrompt("Save State", question, "Save", "Cancel") != 0;
+				}
+
+				if(doSave && N64SaveState(slot, NOTSILENT))
+				{
+					if(slot == 0)
+						AutoSnapshotWritten();
+					InfoPrompt("State saved.");
+				}
 			}
 		}
+
+		if(ret >= 0 || firstRun)
+		{
+			firstRun = false;
+
+			snprintf(options.value[0], sizeof(options.value[0]), "%s", loadMode ? "Load" : "Save");
+			for(int slot = 0; slot < SAVE_SLOTS; slot++)
+				SlotDescription(slot, options.value[slot + 1], sizeof(options.value[slot + 1]));
+
+			optionBrowser.triggerUpdate();
+		}
+
+		if(backBtn.getState() == STATE::CLICKED)
+			selection = MENU_GAME;
 	}
 
-	ResetBrowser();
 	return selection;
 }
 
@@ -2921,7 +1760,6 @@ static int MenuGameSettings()
 
 	MenuIconData iconVideo(icon_settings_video_png);
 	MenuIconData iconEmulation(icon_settings_emulation_png);
-	MenuIconData iconCheats(icon_game_cheats_png);
 	MenuIconData iconScreenshot(icon_settings_screenshot_png);
 
 	GuiTrigger trigHome;
@@ -2930,16 +1768,10 @@ static int MenuGameSettings()
 	trigB.setSecondaryTrigger();
 
 	MenuLargeButton emulationBtn("Emulation", &iconEmulation, -100, 120);
-	
+
 	MenuLargeButton videoBtn("Video", &iconVideo, 100, 120);
 
-	MenuLargeButton screenshotBtn("Screenshot", &iconScreenshot, -100, 250);
-	
-	// With no cheats loaded the button says so (it can still be clicked, and explains)
-	const bool haveCheats = Cheat.g.size() > 0;
-	MenuLargeButton cheatsBtn(haveCheats ? "Cheats" : "Cheats (none)", &iconCheats, 100, 250);
-	if(!haveCheats)
-		cheatsBtn.labelTxt.setColor((PixelColor){110, 110, 110, 255});
+	MenuLargeButton screenshotBtn("Screenshot", &iconScreenshot, 0, 250);
 
 	MenuButton closeBtn(MenuButtonShape::SMALL, "Close", ALIGN_H::RIGHT, ALIGN_V::TOP, -50, 35, &trigHome, 20);
 	closeBtn.setSoundClick(nullptr);
@@ -2951,10 +1783,9 @@ static int MenuGameSettings()
 	w.append(&videoBtn);
 	w.append(&emulationBtn);
 	w.append(&screenshotBtn);
-	w.append(&cheatsBtn);
 	w.append(&closeBtn);
 	w.append(&backBtn);
-	
+
 	menu->mainWindow.appendWithAutoRemove(&w);
 
 	// Opening from the game menu: the first button. Coming back from one of its pages: the button that opened it.
@@ -2963,14 +1794,10 @@ static int MenuGameSettings()
 		case MENU_GAMESETTINGS_VIDEO:
 			SelectButton(w, videoBtn);
 			break;
-		case MENU_GAMESETTINGS_CHEATS:
-			SelectButton(w, cheatsBtn);
-			break;
 		default:
 			SelectButton(w, emulationBtn);
 			break;
 	}
-
 
 	while(selection == MENU_NONE)
 	{
@@ -2984,24 +1811,18 @@ static int MenuGameSettings()
 		{
 			selection = MENU_GAMESETTINGS_EMULATION;
 		}
-		else if(cheatsBtn.getState() == STATE::CLICKED)
-		{
-			cheatsBtn.resetState();
-
-			if(Cheat.g.size() > 0) {
-				selection = MENU_GAMESETTINGS_CHEATS;
-			}
-			else {
-				InfoPrompt("Cheats file not found!");
-				SelectButton(w, cheatsBtn);
-			}
-		}
 		else if(screenshotBtn.getState() == STATE::CLICKED)
 		{
 			if (WindowPrompt("Preview Screenshot", "Save a new Preview Screenshot? Current Screenshot image will be overwritten.", "OK", "Cancel"))
 			{
-				if(platform->getFileSystem()->getPath(filepath, EmuSettings.loadDevice, EmuSettings.screenshotsFolder, Memory.ROMFilename))
-					SavePreviewImg(filepath, NOTSILENT);
+				if(platform->getFileSystem()->getPath(filepath, EmuSettings.loadDevice, EmuSettings.screenshotsFolder, n64RomName))
+				{
+					if(gameScreenPng.size > 0)
+					{
+						strncat(filepath, ".png", sizeof(filepath) - strlen(filepath) - 1);
+						SaveFile((char *)gameScreenPng.buffer, filepath, gameScreenPng.size, NOTSILENT);
+					}
+				}
 				else
 					ErrorPrompt("Maximum filepath length reached!");
 			}
@@ -3035,71 +1856,6 @@ static int MenuGameSettings()
 	return selection;
 }
 
-/****************************************************************************
- * MenuGameCheats
- *
- * Displays a list of cheats available, and allows the user to enable/disable
- * them.
- ***************************************************************************/
-static int MenuGameCheats()
-{
-	int selection = MENU_NONE;
-	int ret;
-	uint16_t i = 0;
-	OptionList options;
-
-	for(i=0; i < Cheat.g.size(); i++)
-	{
-		snprintf (options.name[i], 50, "%s", Cheat.g[i].name);
-		sprintf (options.value[i], "%s", Cheat.g[i].enabled == true ? "On" : "Off");
-	}
-
-	options.length = i;
-
-	GuiText titleTxt("Game Settings - Cheats", 26, (PixelColor){255, 255, 255, 255});
-	titleTxt.setAlignment(ALIGN_H::LEFT, ALIGN_V::TOP);
-	titleTxt.setPosition(50,50);
-
-	GuiTrigger trigB;
-	trigB.setSecondaryTrigger();
-
-	MenuButton backBtn(MenuButtonShape::NORMAL, "Go Back", ALIGN_H::LEFT, ALIGN_V::BOTTOM, 50, -35, &trigB);
-
-	GuiOptionBrowser optionBrowser(MENU_OPTIONS_W, MENU_OPTIONS_H, &options);
-	optionBrowser.setPosition(0, MENU_LIST_Y);
-	optionBrowser.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
-	optionBrowser.setCol2Position(475);
-
-	GuiWindow w(platform->getVideo()->getScreenWidth(), platform->getVideo()->getScreenHeight());
-	w.append(&backBtn);
-	menu->mainWindow.appendWithAutoRemove(&optionBrowser);
-	menu->mainWindow.appendWithAutoRemove(&w);
-	menu->mainWindow.appendWithAutoRemove(&titleTxt);
-
-	while(selection == MENU_NONE)
-	{
-		if(!UpdateGui()) return MENU_EXIT;
-
-		ret = optionBrowser.getClickedOption();
-
-		if(ret >= 0)
-		{
-			ToggleCheat(ret);
-			sprintf (options.value[ret], "%s", Cheat.g[ret].enabled == true ? "On" : "Off");
-			optionBrowser.triggerUpdate();
-		}
-
-		if(backBtn.getState() == STATE::CLICKED)
-		{
-			selection = MENU_GAMESETTINGS;
-		}
-	}
-	return selection;
-}
-
-/****************************************************************************
- * What screens built outside this file need of the menu (see menu.h)
- ***************************************************************************/
 GuiWindow& MenuMainWindow()
 {
 	return menu->mainWindow;
@@ -3267,10 +2023,8 @@ static int MenuSettingsGeneralMappings()
 	bool firstRun = true;
 	OptionList options;
 
-	sprintf(options.name[i++], "Turbo Mode");
-	sprintf(options.name[i++], "Turbo Mode Button");
 	sprintf(options.name[i++], "Menu Toggle");
-	sprintf(options.name[i++], "Map ABXY to Right Stick");
+	sprintf(options.name[i++], "Right Stick as C Buttons");
 
 	options.length = i;
 
@@ -3279,7 +2033,7 @@ static int MenuSettingsGeneralMappings()
 
 	UiScope ui;
 	GuiLabel& title = ui.label("General Mappings").fontSize(UI_FONT_TITLE - 2).textColor(MenuChromeText());
-	GuiLabel& hint = ui.label("Turbo mode, the menu toggle and ABXY on the right stick").fontSize(UI_FONT_SMALL + 2).textColor(MenuChromeTextMuted());
+	GuiLabel& hint = ui.label("The menu toggle and the right stick as the C buttons").fontSize(UI_FONT_SMALL + 2).textColor(MenuChromeTextMuted());
 	hint.setMaxWidth(176);
 	hint.setScroll(SCROLL::HORIZONTAL);
 	GuiLayout& titleBlock = ui.column().gap(4).size(176, 0).add(title).add(hint);
@@ -3313,76 +2067,31 @@ static int MenuSettingsGeneralMappings()
 		switch (ret)
 		{
 			case 0:
-				EmuSettings.turboModeEnabled = !EmuSettings.turboModeEnabled;
-				break;
-
-			case 1:
-				EmuSettings.turboModeButton++;
-				if (EmuSettings.turboModeButton > 14)
-					EmuSettings.turboModeButton = 0;
-				break;
-
-			case 2:
 				EmuSettings.gamepadMenuToggle++;
 				if (EmuSettings.gamepadMenuToggle >= GAMEPAD_MENU_TOGGLE_LENGTH)
 					EmuSettings.gamepadMenuToggle = GAMEPAD_MENU_TOGGLE_DEFAULT;
 				break;
 
-			case 3:
-				EmuSettings.mapAbxyRightStick = !EmuSettings.mapAbxyRightStick;
+			case 1:
+				EmuSettings.mapRightStickToC = !EmuSettings.mapRightStickToC;
 				break;
 		}
 
 		if(ret >= 0 || firstRun)
 		{
 			firstRun = false;
-			sprintf (options.value[0], "%s", EmuSettings.turboModeEnabled ? "On" : "Off");
-			
-			switch(EmuSettings.turboModeButton)
-			{
-				case 0:
-					sprintf (options.value[1], "Default (Right Stick)"); break;
-				case 1:
-					sprintf (options.value[1], "A"); break;
-				case 2:
-					sprintf (options.value[1], "B"); break;
-				case 3:
-					sprintf (options.value[1], "X"); break;
-				case 4:
-					sprintf (options.value[1], "Y"); break;
-				case 5:
-					sprintf (options.value[1], "L"); break;
-				case 6:
-					sprintf (options.value[1], "R"); break;
-				case 7:
-					sprintf (options.value[1], "ZL"); break;
-				case 8:
-					sprintf (options.value[1], "ZR"); break;
-				case 9:
-					sprintf (options.value[1], "Z"); break;
-				case 10:
-					sprintf (options.value[1], "C"); break;
-				case 11:
-					sprintf (options.value[1], "1"); break;
-				case 12:
-					sprintf (options.value[1], "2"); break;
-				case 13:
-					sprintf (options.value[1], "Plus"); break;
-				case 14:
-					sprintf (options.value[1], "Minus"); break;
-			}
 
 			switch(EmuSettings.gamepadMenuToggle)
 			{
 				case GAMEPAD_MENU_TOGGLE_DEFAULT:
-					sprintf (options.value[2], "Default (All Enabled)"); break;
+					sprintf (options.value[0], "Default (All Enabled)"); break;
 				case GAMEPAD_MENU_TOGGLE_HOME_RIGHTSTICK:
-					sprintf (options.value[2], "Home / Right Stick"); break;
+					sprintf (options.value[0], "Home / Right Stick"); break;
 				case GAMEPAD_MENU_TOGGLE_LRSTART_12PLUS:
-					sprintf (options.value[2], "L+R+Start / 1+2+Plus"); break;
+					sprintf (options.value[0], "L+R+Start / 1+2+Plus"); break;
 			}
 
-			sprintf (options.value[3], "%s", EmuSettings.mapAbxyRightStick ? "On" : "Off");
+			sprintf (options.value[1], "%s", EmuSettings.mapRightStickToC ? "On" : "Off");
 
 			optionBrowser.triggerUpdate();
 		}
@@ -3402,24 +2111,13 @@ static int MenuSettingsVideo()
 	int i = 0;
 	bool firstRun = true;
 	OptionList options;
-#if defined(HW_RVL) || defined(HW_DOL)
-	sprintf(options.name[i++], "Output Mode");
-#else
-	options.name[i++][0] = 0; // Output Mode is GameCube / Wii only
-#endif
+
 	sprintf(options.name[i++], "Aspect Ratio Correction");
+	sprintf(options.name[i++], "Internal Resolution");
 	sprintf(options.name[i++], "Bilinear Filtering");
-#if defined(HW_RVL) || defined(HW_DOL)
-	sprintf(options.name[i++], "Hardware Softening");
-#else
-	options.name[i++][0] = 0; // Hardware Softening is GameCube / Wii only
-#endif
-#if defined(HW_RVL) || defined(HW_DOL) || defined(__WIIU__)
 	sprintf(options.name[i++], "Upscaling");
-#else
-	options.name[i++][0] = 0; // upscaling filters not available on this platform
-#endif
 	sprintf(options.name[i++], "Scanline Overlay");
+	sprintf(options.name[i++], "Framebuffer Textures");
 	sprintf(options.name[i++], "Screen Zoom");
 	sprintf(options.name[i++], "Screen Position");
 	options.length = i;
@@ -3438,7 +2136,7 @@ static int MenuSettingsVideo()
 
 	GuiOptionBrowser optionBrowser(MENU_OPTIONS_W, MENU_OPTIONS_H, &options);
 	optionBrowser.setPosition(0, MENU_LIST_Y);
-	optionBrowser.setCol2Position(200);
+	optionBrowser.setCol2Position(240);
 	optionBrowser.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
 
 	GuiWindow w(platform->getVideo()->getScreenWidth(), platform->getVideo()->getScreenHeight());
@@ -3456,15 +2154,15 @@ static int MenuSettingsVideo()
 		switch (ret)
 		{
 			case 0:
-				EmuSettings.videoMode++;
-				if(EmuSettings.videoMode >= VIDEOMODE_LENGTH)
-					EmuSettings.videoMode = VIDEOMODE_AUTO;
-				break;
-
-			case 1:
 				EmuSettings.videoAspectRatioCorrection++;
 				if(EmuSettings.videoAspectRatioCorrection >= VIDEO_ASPECT_RATIO_CORRECTION_LENGTH)
 					EmuSettings.videoAspectRatioCorrection = VIDEO_ASPECT_RATIO_CORRECTION_NONE;
+				break;
+
+			case 1:
+				EmuSettings.renderScale++;
+				if(EmuSettings.renderScale >= RENDER_SCALE_LENGTH)
+					EmuSettings.renderScale = RENDER_SCALE_1X;
 				break;
 
 			case 2:
@@ -3472,21 +2170,17 @@ static int MenuSettingsVideo()
 				break;
 
 			case 3:
-				EmuSettings.videoHardwareSoften++;
-				if(EmuSettings.videoHardwareSoften >= VIDEO_HW_SOFTEN_LENGTH)
-					EmuSettings.videoHardwareSoften = VIDEO_HW_SOFTEN_OFF;
-				break;
-
-#if defined(HW_RVL) || defined(HW_DOL) || defined(__WIIU__)
-			case 4:
 				EmuSettings.videoUpscalingFilter++;
 				if (EmuSettings.videoUpscalingFilter >= NUM_UPSCALE_FILTERS)
 					EmuSettings.videoUpscalingFilter = UPSCALE_NONE;
 				break;
-#endif
+
+			case 4:
+				EmuSettings.videoScanlines = !EmuSettings.videoScanlines;
+				break;
 
 			case 5:
-				EmuSettings.videoScanlines = !EmuSettings.videoScanlines;
+				EmuSettings.frameFramebufferTextures = !EmuSettings.frameFramebufferTextures;
 				break;
 
 			case 6:
@@ -3502,57 +2196,31 @@ static int MenuSettingsVideo()
 		{
 			firstRun = false;
 
-			switch(EmuSettings.videoMode)
-			{
-				case VIDEOMODE_AUTO:
-					sprintf (options.value[0], "Automatic (Recommended)"); break;
-				case VIDEOMODE_NTSC:
-					sprintf (options.value[0], "NTSC (480i)"); break;
-				case VIDEOMODE_PROGRESSIVE:
-					sprintf (options.value[0], "Progressive (480p)"); break;
-				case VIDEOMODE_PAL:
-					sprintf (options.value[0], "PAL (50Hz)"); break;
-				case VIDEOMODE_PAL60:
-					sprintf (options.value[0], "PAL (60Hz)"); break;
-				case VIDEOMODE_PROGRESSIVE_576P:
-					sprintf (options.value[0], "Progressive (576p)"); break;
-				case VIDEOMODE_ORIGINAL_240P:
-					sprintf (options.value[0], "Original (240p)"); break;
-			}
-
 			switch(EmuSettings.videoAspectRatioCorrection)
 			{
 				case VIDEO_ASPECT_RATIO_CORRECTION_NONE:
-					sprintf (options.value[1], "None"); break;
-				case VIDEO_ASPECT_RATIO_CORRECTION_16_9:
-					sprintf (options.value[1], "16:9"); break;
-				case VIDEO_ASPECT_RATIO_CORRECTION_16_9_FIXED:
-					sprintf (options.value[1], "16:9 (Fixed Pixel Ratio)"); break;
+					sprintf (options.value[0], "Fill the Screen"); break;
+				case VIDEO_ASPECT_RATIO_CORRECTION_4_3:
+					sprintf (options.value[0], "4:3"); break;
+				case VIDEO_ASPECT_RATIO_CORRECTION_4_3_FIXED:
+					sprintf (options.value[0], "4:3 (Fixed Pixel Ratio)"); break;
 			}
 
-#ifdef __WIIU__
+			switch(EmuSettings.renderScale)
+			{
+				case RENDER_SCALE_1X: sprintf (options.value[1], "Native (640x480)"); break;
+				case RENDER_SCALE_2X: sprintf (options.value[1], "2x (1280x960)"); break;
+				case RENDER_SCALE_3X: sprintf (options.value[1], "3x (1920x1440)"); break;
+			}
+
 			if (EmuSettings.videoUpscalingFilter == UPSCALE_SHARP_BILINEAR)
 				sprintf (options.value[2], "N/A"); // Sharp Bilinear does its own filtering
 			else
-#endif
-			sprintf (options.value[2], "%s", EmuSettings.videoBilinearFilter ? "On" : "Off");
+				sprintf (options.value[2], "%s", EmuSettings.videoBilinearFilter ? "On" : "Off");
 
-			switch(EmuSettings.videoHardwareSoften)
-			{
-				case VIDEO_HW_SOFTEN_OFF:
-					sprintf (options.value[3], "Off"); break;
-				case VIDEO_HW_SOFTEN_AUTO:
-					sprintf (options.value[3], "Auto"); break;
-				case VIDEO_HW_SOFTEN_SHARP:
-					sprintf (options.value[3], "Sharp"); break;
-				case VIDEO_HW_SOFTEN_SOFT:
-					sprintf (options.value[3], "Soft"); break;
-			}
-
-#if defined(HW_RVL) || defined(HW_DOL) || defined(__WIIU__)
-			sprintf (options.value[4], "%s", GetUpscaleFilterName(EmuSettings.videoUpscalingFilter));
-#endif
-			sprintf (options.value[5], "%s", EmuSettings.videoScanlines ? "On" : "Off");
+			sprintf (options.value[3], "%s", GetUpscaleFilterName(EmuSettings.videoUpscalingFilter));
+			sprintf (options.value[4], "%s", EmuSettings.videoScanlines ? "On" : "Off");
+			sprintf (options.value[5], "%s", EmuSettings.frameFramebufferTextures ? "On" : "Off");
 			sprintf (options.value[6], "%.2f%%, %.2f%%", EmuSettings.videoZoomHor*100, EmuSettings.videoZoomVert*100);
 			sprintf (options.value[7], "%d, %d", EmuSettings.videoXshift, EmuSettings.videoYshift);
 
@@ -3578,15 +2246,14 @@ static int MenuSettingsEmulation()
 	bool firstRun = true;
 	OptionList options;
 
-	sprintf(options.name[i++], "SNES Hi-Res Mode");
-	sprintf(options.name[i++], "Sprites Per-Line Limit");
-	sprintf(options.name[i++], "SuperFX Overclock");
-	sprintf(options.name[i++], "Audio Interpolation");
+	sprintf(options.name[i++], "CPU Core");
+	sprintf(options.name[i++], "Cycles Per Instruction");
+	sprintf(options.name[i++], "Limit Frame Rate");
 	sprintf(options.name[i++], "Mute Game Audio");
-	sprintf(options.name[i++], "Frame Skipping");
-	sprintf(options.name[i++], "Crosshair");
-	sprintf(options.name[i++], "Show Framerate");
-	sprintf(options.name[i++], "Show Local Time");
+	sprintf(options.name[i++], "Controller Pak 1");
+	sprintf(options.name[i++], "Controller Pak 2");
+	sprintf(options.name[i++], "Controller Pak 3");
+	sprintf(options.name[i++], "Controller Pak 4");
 	options.length = i;
 
 	for(i=0; i < options.length; i++)
@@ -3603,7 +2270,7 @@ static int MenuSettingsEmulation()
 
 	GuiOptionBrowser optionBrowser(MENU_OPTIONS_W, MENU_OPTIONS_H, &options);
 	optionBrowser.setPosition(0, MENU_LIST_Y);
-	optionBrowser.setCol2Position(200);
+	optionBrowser.setCol2Position(240);
 	optionBrowser.setAlignment(ALIGN_H::CENTRE, ALIGN_V::TOP);
 
 	GuiWindow w(platform->getVideo()->getScreenWidth(), platform->getVideo()->getScreenHeight());
@@ -3611,129 +2278,82 @@ static int MenuSettingsEmulation()
 	menu->mainWindow.appendWithAutoRemove(&optionBrowser);
 	menu->mainWindow.appendWithAutoRemove(&w);
 	menu->mainWindow.appendWithAutoRemove(&titleTxt);
-	
+
 	while(selection == MENU_NONE)
 	{
 		if(!UpdateGui()) return MENU_EXIT;
 		ret = optionBrowser.getClickedOption();
-		
+
 		switch (ret)
 		{
 			case 0:
-				EmuSettings.hiResolution = !EmuSettings.hiResolution;
+				EmuSettings.cpuCore++;
+				if(EmuSettings.cpuCore >= CPUCORE_LENGTH)
+					EmuSettings.cpuCore = CPUCORE_AUTO;
 				break;
 
 			case 1:
-				EmuSettings.spriteLimit = !EmuSettings.spriteLimit;
+				EmuSettings.countPerOp++;
+				if(EmuSettings.countPerOp > 3)
+					EmuSettings.countPerOp = 1;
 				break;
 
 			case 2:
-				#ifndef HW_DOL
-				EmuSettings.sfxOverclock++;
-				if (EmuSettings.sfxOverclock >= SFXOVERCLOCK_LENGTH) {
-					EmuSettings.sfxOverclock = SFXOVERCLOCK_OFF;
-				}
-				#else
-				EmuSettings.sfxOverclock++;
-				if (EmuSettings.sfxOverclock > SFXOVERCLOCK_60MHZ) {
-					EmuSettings.sfxOverclock = SFXOVERCLOCK_OFF;
-				}
-				#endif
-				switch(EmuSettings.sfxOverclock)
-				{
-					case SFXOVERCLOCK_OFF: Settings.SuperFXSpeedPerLine = 5823405; break;
-					case SFXOVERCLOCK_20MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 20.5e6; break;
-					case SFXOVERCLOCK_40MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 40.5e6; break;
-					case SFXOVERCLOCK_60MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 60.5e6; break;
-					case SFXOVERCLOCK_80MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 80.5e6; break;
-					case SFXOVERCLOCK_100MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 100.5e6; break;
-					case SFXOVERCLOCK_120MHZ: Settings.SuperFXSpeedPerLine = 0.417 * 120.5e6; break;
-				}
-				S9xResetSuperFX();
-				S9xReset();
+				EmuSettings.limitFrameRate = !EmuSettings.limitFrameRate;
 				break;
 
 			case 3:
-				EmuSettings.interpolation++;
-				if (EmuSettings.interpolation > 4) {
-					EmuSettings.interpolation = 0;
-				}
-				switch(EmuSettings.interpolation)
-				{
-					case 0: Settings.InterpolationMethod = DSP_INTERPOLATION_GAUSSIAN; break;
-					case 1: Settings.InterpolationMethod = DSP_INTERPOLATION_LINEAR; break;
-					case 2: Settings.InterpolationMethod = DSP_INTERPOLATION_CUBIC; break;
-					case 3: Settings.InterpolationMethod = DSP_INTERPOLATION_SINC; break;
-					case 4: Settings.InterpolationMethod = DSP_INTERPOLATION_NONE; break;
-				}
-				S9xReset();
-				break;
-
-			case 4:
 				EmuSettings.muteAudio = !EmuSettings.muteAudio;
 				break;
 
+			case 4:
 			case 5:
-				EmuSettings.frameSkip = !EmuSettings.frameSkip;
-				break;
-
 			case 6:
-				EmuSettings.crosshair = !EmuSettings.crosshair;
-				break;
-
 			case 7:
-				Settings.DisplayFrameRate = !Settings.DisplayFrameRate;
+			{
+				int & pak = EmuSettings.pakMode[ret - 4];
+				pak++;
+				if(pak >= PAK_LENGTH)
+					pak = PAK_NONE;
 				break;
-
-			case 8:
-				Settings.DisplayTime = !Settings.DisplayTime;
-				break;
+			}
 		}
-		
-	if(ret >= 0 || firstRun)
+
+		if(ret >= 0)
+		{
+			N64ApplySettings();
+			MarkLiveStateChanged();
+		}
+
+		if(ret >= 0 || firstRun)
 		{
 			firstRun = false;
 
-			sprintf (options.value[0], "%s", EmuSettings.hiResolution ? "On" : "Off");
-			sprintf (options.value[1], "%s", EmuSettings.spriteLimit ? "On" : "Off");
-			
-			switch(EmuSettings.sfxOverclock)
+			switch(EmuSettings.cpuCore)
 			{
-				case SFXOVERCLOCK_OFF:
-					sprintf (options.value[2], "Default"); break;
-				case SFXOVERCLOCK_20MHZ:
-					sprintf (options.value[2], "20 MHz"); break;
-				case SFXOVERCLOCK_40MHZ:
-					sprintf (options.value[2], "40 MHz"); break;
-				case SFXOVERCLOCK_60MHZ:
-					sprintf (options.value[2], "60 MHz"); break;
-				case SFXOVERCLOCK_80MHZ:
-					sprintf (options.value[2], "80 MHz"); break;
-				case SFXOVERCLOCK_100MHZ:
-					sprintf (options.value[2], "100 MHz"); break;
-				case SFXOVERCLOCK_120MHZ:
-					sprintf (options.value[2], "120 MHz"); break;
+				case CPUCORE_AUTO:
+					sprintf (options.value[0], "Automatic (Recommended)"); break;
+				case CPUCORE_DYNAREC:
+					sprintf (options.value[0], "Recompiler"); break;
+				case CPUCORE_CACHED_INTERPRETER:
+					sprintf (options.value[0], "Cached Interpreter"); break;
+				case CPUCORE_PURE_INTERPRETER:
+					sprintf (options.value[0], "Pure Interpreter"); break;
 			}
 
-			switch(EmuSettings.interpolation)
-			{
-				case 0:
-					sprintf (options.value[3], "Gaussian (Accurate)"); break;
-				case 1:
-					sprintf (options.value[3], "Linear"); break;
-				case 2:
-					sprintf (options.value[3], "Cubic"); break;
-				case 3:
-					sprintf (options.value[3], "Sinc"); break;
-				case 4:
-					sprintf (options.value[3], "None"); break;
-			}
+			sprintf (options.value[1], "%d", EmuSettings.countPerOp);
+			sprintf (options.value[2], "%s", EmuSettings.limitFrameRate ? "On" : "Off");
+			sprintf (options.value[3], "%s", EmuSettings.muteAudio ? "On" : "Off");
 
-			sprintf (options.value[4], "%s", EmuSettings.muteAudio ? "On" : "Off");
-			sprintf (options.value[5], "%s", EmuSettings.frameSkip ? "On" : "Off");
-			sprintf (options.value[6], "%s", EmuSettings.crosshair ? "On" : "Off");
-			sprintf (options.value[7], "%s", Settings.DisplayFrameRate ? "On" : "Off");
-			sprintf (options.value[8], "%s", Settings.DisplayTime ? "On" : "Off");
+			for(int p = 0; p < 4; p++)
+			{
+				switch(EmuSettings.pakMode[p])
+				{
+					case PAK_NONE: sprintf (options.value[4 + p], "None"); break;
+					case PAK_MEMORY: sprintf (options.value[4 + p], "Memory Pak"); break;
+					case PAK_RUMBLE: sprintf (options.value[4 + p], "Rumble Pak"); break;
+				}
+			}
 
 			optionBrowser.triggerUpdate();
 		}
@@ -3865,7 +2485,6 @@ static int MenuSettingsStorage()
 	sprintf(options.name[i++], "Save Device");
 	sprintf(options.name[i++], "Load Folder");
 	sprintf(options.name[i++], "Save Folder");
-	sprintf(options.name[i++], "Cheats Folder");
 	sprintf(options.name[i++], "Screenshots Folder");
 	sprintf(options.name[i++], "Covers Folder");
 	sprintf(options.name[i++], "Artwork Folder");
@@ -3919,18 +2538,14 @@ static int MenuSettingsStorage()
 				break;
 
 			case 4:
-				OnScreenKeyboard(EmuSettings.cheatFolder, MAXPATHLEN);
-				break;
-				
-			case 5:
 				OnScreenKeyboard(EmuSettings.screenshotsFolder, MAXPATHLEN);
 				break;
-				
-			case 6:
+
+			case 5:
 				OnScreenKeyboard(EmuSettings.coverFolder, MAXPATHLEN);
 				break;
 
-			case 7:
+			case 6:
 				OnScreenKeyboard(EmuSettings.artworkFolder, MAXPATHLEN);
 				break;
 		}
@@ -3960,10 +2575,9 @@ static int MenuSettingsStorage()
 
 			CopyString(options.value[2], 35, EmuSettings.loadFolder);
 			CopyString(options.value[3], 35, EmuSettings.saveFolder);
-			CopyString(options.value[4], 35, EmuSettings.cheatFolder);
-			CopyString(options.value[5], 35, EmuSettings.screenshotsFolder);
-			CopyString(options.value[6], 35, EmuSettings.coverFolder);
-			CopyString(options.value[7], 35, EmuSettings.artworkFolder);
+			CopyString(options.value[4], 35, EmuSettings.screenshotsFolder);
+			CopyString(options.value[5], 35, EmuSettings.coverFolder);
+			CopyString(options.value[6], 35, EmuSettings.artworkFolder);
 
 			optionBrowser.triggerUpdate();
 		}
@@ -4676,7 +3290,7 @@ void MainMenu (int selection)
 	if(currentMenu == MENU_GAMESELECTION)
 		bgMusic->play();
 
-	while(currentMenu != MENU_EXIT || SNESROMSize <= 0)
+	while(currentMenu != MENU_EXIT || !N64IsLoaded())
 	{
 		const int pageRun = currentMenu;
 		switch (currentMenu)
@@ -4707,9 +3321,6 @@ void MainMenu (int selection)
 				break;
 			case MENU_GAMESETTINGS_EMULATION:
 				currentMenu = MenuSettingsEmulation();
-				break;
-			case MENU_GAMESETTINGS_CHEATS:
-				currentMenu = MenuGameCheats();
 				break;
 			case MENU_SETTINGS:
 				currentMenu = MenuSettings();

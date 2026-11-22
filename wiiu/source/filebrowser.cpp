@@ -1,5 +1,7 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
+ *
+ * Based on Snes9x GX, Daryl Borth 2008-2026
  *
  * Daryl Borth 2008-2026
  *
@@ -14,22 +16,18 @@
 #include <sys/dir.h>
 #include <sys/stat.h>
 
-#include "snes9x/port.h"
-#include "snes9xgx.h"
+#include "not64gx.h"
 #include "filebrowser.h"
 #include "menu/menu.h"
 #include "video.h"
 #include "fileop.h"
 #include "input.h"
 #include "utils/decompress.h"
-#include "freeze.h"
-#include "sram.h"
 #include "savemode.h"
+#include "emu_n64.h"
+#include "memmanager.h"
 #include "widgets/GuiSaveBrowser.h"
 
-#include "snes9x/snes9x.h"
-#include "snes9x/memmap.h"
-#include "snes9x/cheats.h"
 #include "drivers/Platform.h"
 #include "drivers/FileSystemDriver.h"
 #include "drivers/safestr.h"
@@ -43,10 +41,6 @@ static char szpath[MAXPATHLEN];
 char szname[MAXPATHLEN];
 bool inSz = false;
 
-unsigned long SNESROMSize = 0;
-bool bsxBiosLoadFailed;
-
-extern bool isBSX();
 
 bool isValidLoadDevice(int device)
 {
@@ -395,31 +389,16 @@ bool MakeFilePath(char filepath[], int type, char * filename, int filenum)
 			case FILE_SRAM:
 			case FILE_STATE:
 			{
+				// States are "<name> <slot>.st", slot 0 being the Auto Snapshot. The core
+				// names the game's own saves itself, so only the state files are built here.
 				folder = EmuSettings.saveFolder;
-				const char * ext = (type == FILE_SRAM) ? "srm" : "frz";
 
-				// Slot 0 is the auto slot. A Snapshot's is "<name> Auto.frz". The Cartridge Save has the
-				// plain name the game is known by, "<name>.srm", and its other slots are its backups.
-				// -1 is the plain name, for either type.
-				if(filenum >= -1)
-				{
-					if(filenum == -1 || (filenum == 0 && type == FILE_SRAM))
-						nameFits = FormatString(file, sizeof(file), "%s.%s", filename, ext);
-					else if(filenum == 0)
-						nameFits = FormatString(file, sizeof(file), "%s Auto.%s", filename, ext);
-					else
-						nameFits = FormatString(file, sizeof(file), "%s %i.%s", filename, filenum, ext);
-				}
+				if(filenum >= 0)
+					nameFits = FormatString(file, sizeof(file), "%s.st%i", filename, filenum);
 				else
-				{
 					nameFits = FormatString(file, sizeof(file), "%s", filename);
-				}
 				break;
 			}
-			case FILE_CHEAT:
-				folder = EmuSettings.cheatFolder;
-				nameFits = FormatString(file, sizeof(file), "%s.cht", Memory.ROMFilename);
-				break;
 			default:
 				return false;
 		}
@@ -429,133 +408,6 @@ bool MakeFilePath(char filepath[], int type, char * filename, int filenum)
 	}
 	CleanupPath(temppath); // cleanup path
 	return CopyString(filepath, MAXPATHLEN, temppath);
-}
-
-/****************************************************************************
- * MigrateSaveFileNames
- *
- * Older versions named some files differently, depending on a setting that is
- * gone. For the game that is loaded:
- *  - a Snapshot's auto slot may be "<name>.frz": it becomes "<name> Auto.frz"
- *    (with its screenshot)
- *  - a Cartridge Save may be "<name> Auto.srm", and have been kept up to
- *    date there, or beside a "<name>.srm" that was: the newer of the two is the
- *    Cartridge Save, and an older one is kept as a backup
- ***************************************************************************/
-static bool FileExists(const char * path)
-{
-	struct stat st;
-	return stat(path, &st) == 0;
-}
-
-static time_t FileTime(const char * path)
-{
-	struct stat st;
-
-	if(stat(path, &st) != 0)
-		return 0;
-	return st.st_mtime;
-}
-
-// "<name>.ext" -> "<name> Auto.ext"; ext is 3 characters
-static void AutoNamedPath(char * out, const char * plain)
-{
-	const int len = strlen(plain);
-
-	if(len < 4)
-	{
-		snprintf(out, MAXPATHLEN, "%s", plain);
-		return;
-	}
-	snprintf(out, MAXPATHLEN, "%.*s Auto%s", len-4, plain, &plain[len-4]);
-}
-
-// Replaces the 3 character extension of path
-static void ChangeExtension(char * out, const char * path, const char * ext)
-{
-	const int len = strlen(path);
-
-	if(len < 4)
-	{
-		snprintf(out, MAXPATHLEN, "%s", path);
-		return;
-	}
-	snprintf(out, MAXPATHLEN, "%.*s%s", len-3, path, ext);
-}
-
-// Renames a Cartridge Save, and the real time clock's file that goes along with it
-static bool MoveGameSave(const char * from, const char * to)
-{
-	char rtcFrom[MAXPATHLEN];
-	char rtcTo[MAXPATHLEN];
-
-	if(rename(from, to) != 0)
-		return false;
-
-	ChangeExtension(rtcFrom, from, "rtc");
-	ChangeExtension(rtcTo, to, "rtc");
-
-	if(FileExists(rtcFrom) && !FileExists(rtcTo))
-		rename(rtcFrom, rtcTo);
-	return true;
-}
-
-void MigrateSaveFileNames()
-{
-	char plain[MAXPATHLEN];
-	char autoNamed[MAXPATHLEN];
-	char png[MAXPATHLEN];
-	char autoPng[MAXPATHLEN];
-
-	// Snapshot
-	if(MakeFilePath(plain, FILE_STATE, Memory.ROMFilename, -1) && MakeFilePath(autoNamed, FILE_STATE, Memory.ROMFilename, 0))
-	{
-		if(FileExists(plain) && !FileExists(autoNamed))
-		{
-			rename(plain, autoNamed);
-			ChangeExtension(png, plain, "png");
-			ChangeExtension(autoPng, autoNamed, "png");
-
-			if(FileExists(png) && !FileExists(autoPng))
-				rename(png, autoPng);
-		}
-	}
-
-	// Cartridge Save
-	if(!MakeFilePath(plain, FILE_SRAM, Memory.ROMFilename, 0))
-		return;
-
-	AutoNamedPath(autoNamed, plain);
-
-	if(!FileExists(autoNamed))
-		return;
-
-	if(!FileExists(plain))
-	{
-		MoveGameSave(autoNamed, plain);
-		return;
-	}
-
-	// Both: the newer one is the Cartridge Save, and the older becomes a backup in the first free slot
-	const bool autoIsNewer = FileTime(autoNamed) > FileTime(plain);
-	char backup[MAXPATHLEN];
-
-	for(int slot = 1; slot < MAX_SAVES; slot++)
-	{
-		if(!MakeFilePath(backup, FILE_SRAM, Memory.ROMFilename, slot) || FileExists(backup))
-			continue;
-
-		if(autoIsNewer)
-		{
-			if(MoveGameSave(plain, backup))
-				MoveGameSave(autoNamed, plain);
-		}
-		else
-		{
-			MoveGameSave(autoNamed, backup);
-		}
-		return;
-	}
 }
 
 /****************************************************************************
@@ -619,11 +471,10 @@ static bool IsValidROM()
 
 			if(p != nullptr)
 			{
-				if (strcasecmp(p, ".bs") == 0 ||
-					strcasecmp(p, ".fig") == 0 ||
-					strcasecmp(p, ".sfc") == 0 ||
-					strcasecmp(p, ".smc") == 0 ||
-					strcasecmp(p, ".swc") == 0)
+				if (strcasecmp(p, ".z64") == 0 ||
+					strcasecmp(p, ".n64") == 0 ||
+					strcasecmp(p, ".v64") == 0 ||
+					strcasecmp(p, ".rom") == 0)
 				{
 					if(zippedFilename) free(zippedFilename);
 					return true;
@@ -727,24 +578,59 @@ int BrowserLoadSz()
 	return szfiles;
 }
 
+// The biggest ROM that is ever loaded from an archive (the size is not known before unpacking)
+#define MAX_ARCHIVED_ROM_SIZE (256u * 1024u * 1024u)
+
+/****************************************************************************
+ * ROMLoader
+ *
+ * Reads the selected ROM (plain, zipped or 7-zipped) into memory and gives it
+ * to the emulator. The file buffer is freed as soon as the core has its own copy.
+ ***************************************************************************/
 int ROMLoader()
 {
-	size_t size;
+	size_t size = 0;
+	size_t bufferSize;
 	char filepath[1024];
+	uint8_t * rom;
+	const char * name = browserList[browser.selIndex].filename;
+	const char * dot = strrchr(name, '.');
+	const bool zipped = !inSz && dot && strcasecmp(dot, ".zip") == 0;
 
-	memset(Memory.NSRTHeader, 0, sizeof(Memory.NSRTHeader));
-	Memory.HeaderCount = 0;
+	if(!inSz && !zipped)
+		bufferSize = browserList[browser.selIndex].length;
+	else
+		bufferSize = MAX_ARCHIVED_ROM_SIZE;
+
+	if(inSz && browserList[browser.selIndex].length > 0)
+		bufferSize = browserList[browser.selIndex].length;
+
+	if(bufferSize < 0x1000 || bufferSize > MAX_ARCHIVED_ROM_SIZE)
+	{
+		ErrorPrompt("Unsupported file size!");
+		return 0;
+	}
+
+	rom = (uint8_t *)extmem_malloc((uint32_t)bufferSize);
+	if(!rom)
+	{
+		ErrorPrompt("Not enough memory to load this ROM.");
+		return 0;
+	}
 
 	if(!inSz)
 	{
 		if(!MakeFilePath(filepath, FILE_ROM))
+		{
+			extmem_free(rom);
 			return 0;
+		}
 
-		size = LoadFile ((char *)Memory.ROM, filepath, 0, Memory.MAX_ROM_SIZE, NOTSILENT);
+		size = LoadFile((char *)rom, filepath, 0, bufferSize, NOTSILENT);
 	}
 	else
 	{
-		size = LoadSzFile(szpath, (unsigned char *)Memory.ROM);
+		size = LoadSzFile(szpath, rom);
 
 		if(size <= 0)
 		{
@@ -754,26 +640,19 @@ int ROMLoader()
 	}
 
 	if(size <= 0)
-		return 0;
-
-	SNESROMSize = Memory.HeaderRemove(size, Memory.ROM);
-
-	if(SNESROMSize <= 0)
 	{
-		ErrorPrompt("Unsupported file size!");
+		extmem_free(rom);
 		return 0;
 	}
 
-	bsxBiosLoadFailed = false;
+	// the name of the game, without its extension, keys its saves and previews
+	char stem[MAXPATHLEN];
+	StripExt(stem, inSz ? szname : browserList[browser.selIndex].filename);
 
-	if(isBSX()) {
-		if(!platform->getFileSystem()->getPath(filepath, EmuSettings.loadDevice, APPFOLDER, "BS-X.bin")
-			|| LoadFile ((char *)Memory.BIOSROM, filepath, 0, 0x100000, SILENT) == 0) {
-			bsxBiosLoadFailed = true;
-		}
-	}
+	const bool opened = N64OpenRom(rom, size, stem);
+	extmem_free(rom);
 
-	return SNESROMSize;
+	return opened ? (int)size : 0;
 }
 
 /****************************************************************************
@@ -796,20 +675,11 @@ int BrowserLoadFile()
 	if(!IsValidROM())
 		goto done;
 
-	// store the filename (w/o ext) - used for Cartridge Save/Snapshot naming
-	StripExt(Memory.ROMFilename, browserList[browser.selIndex].filename);
 	snprintf(EmuSettings.lastFileLoaded, MAXPATHLEN, "%s", browserList[browser.selIndex].filename);
-	strncpy(Memory.ROMFilePath, browser.dir, PATH_MAX);
-	Memory.ROMFilePath[PATH_MAX] = 0;
 
-	SNESROMSize = 0;
-	S9xDeleteCheats();
-	Memory.LoadROM("ROM");
-
-	if (SNESROMSize != 0)
+	if (ROMLoader() != 0)
 	{
 		platform->getAudio()->getEmulatorAudio()->resetAudio();
-		ClearPlayingFrom(); // a new game does not start from the last game's snapshot
 
 		AutoLoadOnGameOpen();
 

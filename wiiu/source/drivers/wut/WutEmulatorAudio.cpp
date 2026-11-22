@@ -1,131 +1,116 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * Daryl Borth 2008-2026
+ * Based on dborth's WutEmulatorAudio (Snes9x GX), Daryl Borth 2008-2026.
  *
  * WutEmulatorAudio.cpp
  ***************************************************************************/
 #include <coreinit/cache.h>
 #include <sndcore2/core.h>
 #include <string.h>
+#include <algorithm>
 
 #include "WutEmulatorAudio.h"
-#include "../../snes9xgx.h"
-#include "../../snes9x/apu/apu.h"
+#include "../../core/audio_wiiu.h"
 
-// Dynamic-rate control: nudge the emulated sample rate up or down slightly to
-// keep the number of unplayed (queued) buffers within a comfortable band,
-// preventing both buffer underruns (audio gaps) and overruns (added latency).
-// Identical constants/hysteresis to OgcEmulatorAudio - only the mechanism
-// used to measure "unplayed" differs (hardware voice playhead vs. a DMA
-// IRQ-advanced index).
-#define UNPLAYED_HIGH_WATER 8       // above this we are building latency, slow down
-#define UNPLAYED_HIGH_RELEASE 6     // stay slow until the queue drains back to here
-#define UNPLAYED_LOW_RELEASE 6      // stay fast until the queue fills back to here
-#define UNPLAYED_LOW_WATER 4        // below this we risk an underrun, speed up
-#define UNPLAYED_START_LEVEL 4      // queue at least this many buffers before starting voices
-#define RATE_SLOW_DOWN 1.005        // emit samples slightly slower to drain the queue
-#define RATE_SPEED_UP 0.995         // emit samples slightly faster to fill the queue
-#define RATE_NEUTRAL 1.0
+namespace
+{
+	//! Speed correction while the queue is too full / too empty (0.5 percent
+	//! is inaudible but enough to walk the queue back into its band)
+	const float CORRECT_DRAIN = 1.005f;
+	const float CORRECT_FILL = 0.995f;
 
-// Maximum allowed queued buffers (12 out of 16).
-// Leaves a mandatory 4-buffer safety zone ahead of the hardware playhead.
-#define MAX_QUEUED_BUFFERS 12
+	//! The emulation speed is only followed within these limits, so a stall
+	//! or a fast-forward can not turn the audio into noise.
+	const float SPEED_MIN = 0.5f;
+	const float SPEED_MAX = 2.0f;
 
-// The single WutEmulatorAudio instance currently registered with the
-// S9x sample-ready trampoline below. There is only ever one emulator
-// audio backend alive at a time.
-static WutEmulatorAudio* instance = nullptr;
+	//! The single instance behind the C interface in audio_wiiu.h
+	WutEmulatorAudio * instance = nullptr;
 
-void S9xAudioCallback(void *) {
-	if (instance)
-		instance->audioCallback();
+	template <int N>
+	void buildChannelMix(AXVoiceDeviceMixData (&mix)[N], bool left, bool right)
+	{
+		memset(mix, 0, sizeof(mix));
+		if(left)
+			mix[0].bus[0].volume = 0x8000;
+		if(right && N > 1)
+			mix[1].bus[0].volume = 0x8000;
+	}
+
+	constexpr int AX_TV_CHANNELS = 6;
+	constexpr int AX_DRC_CHANNELS = 4;
 }
 
 WutEmulatorAudio::WutEmulatorAudio() :
-	voiceL(nullptr), voiceR(nullptr), writeOffset(0), started(false), turboDrop(false),
-	queuedFrames(0), lastHwFrame(0), rateState(RATE_STATE_NEUTRAL)
+	voiceL(nullptr), voiceR(nullptr), writeOffset(0), queuedFrames(0), lastHwFrame(0),
+	sourceRate(32000), speed(1.0f), correction(1.0f), started(false), paused(false)
 {
 	memset(ringL, 0, sizeof(ringL));
 	memset(ringR, 0, sizeof(ringR));
-	memset(dummy, 0, sizeof(dummy));
 	instance = this;
 }
 
-WutEmulatorAudio::~WutEmulatorAudio() {
-	if (voiceL) AXFreeVoice(voiceL);
-	if (voiceR) AXFreeVoice(voiceR);
-	if (instance == this)
+WutEmulatorAudio::~WutEmulatorAudio()
+{
+	if(voiceL) AXFreeVoice(voiceL);
+	if(voiceR) AXFreeVoice(voiceR);
+	if(instance == this)
 		instance = nullptr;
 }
 
-template <int N>
-static void buildChannelMix(AXVoiceDeviceMixData (&mix)[N], bool left, bool right) {
-	memset(mix, 0, sizeof(mix));
-	if (left)
-		mix[0].bus[0].volume = 0x8000;
-	if (right && N > 1)
-		mix[1].bus[0].volume = 0x8000;
-}
+void WutEmulatorAudio::init()
+{
+	if(voiceL && voiceR)
+	{
+		resetAudio();
+		return;
+	}
 
-static constexpr int AX_TV_CHANNELS = 6;
-static constexpr int AX_DRC_CHANNELS = 4;
-
-void WutEmulatorAudio::init() {
-	voiceL = AXAcquireVoice(31, 0, 0);
-	voiceR = AXAcquireVoice(31, 0, 0);
+	voiceL = AXAcquireVoice(31, nullptr, nullptr);
+	voiceR = AXAcquireVoice(31, nullptr, nullptr);
 
 	AXVoiceDeviceMixData tvMixL[AX_TV_CHANNELS], drcMixL[AX_DRC_CHANNELS];
 	AXVoiceDeviceMixData tvMixR[AX_TV_CHANNELS], drcMixR[AX_DRC_CHANNELS];
-	buildChannelMix(tvMixL, true, false);   // Hard-pan Left
+	buildChannelMix(tvMixL, true, false);   // hard-pan left
 	buildChannelMix(drcMixL, true, false);
-	buildChannelMix(tvMixR, false, true);   // Hard-pan Right
+	buildChannelMix(tvMixR, false, true);   // hard-pan right
 	buildChannelMix(drcMixR, false, true);
 
-	if (voiceL) {
-		AXVoiceBegin(voiceL);
-		AXSetVoiceType(voiceL, 0);
+	AXVoice * voices[2] = { voiceL, voiceR };
+	AXVoiceDeviceMixData * tv[2] = { tvMixL, tvMixR };
+	AXVoiceDeviceMixData * drc[2] = { drcMixL, drcMixR };
 
-		AXSetVoiceDeviceMix(voiceL, AX_DEVICE_TYPE_TV, 0, tvMixL);
-		AXSetVoiceDeviceMix(voiceL, AX_DEVICE_TYPE_DRC, 0, drcMixL);
+	for(int i = 0; i < 2; i++)
+	{
+		if(!voices[i])
+			continue;
 
-		AXVoiceVeData veData;
-		veData.volume = 0x8000;
-		veData.delta = 0;
-		AXSetVoiceVe(voiceL, &veData);
-
-		AXVoiceEnd(voiceL);
-	}
-
-	if (voiceR) {
-		AXVoiceBegin(voiceR);
-		AXSetVoiceType(voiceR, 0);
-
-		AXSetVoiceDeviceMix(voiceR, AX_DEVICE_TYPE_TV, 0, tvMixR);
-		AXSetVoiceDeviceMix(voiceR, AX_DEVICE_TYPE_DRC, 0, drcMixR);
+		AXVoiceBegin(voices[i]);
+		AXSetVoiceType(voices[i], 0);
+		AXSetVoiceDeviceMix(voices[i], AX_DEVICE_TYPE_TV, 0, tv[i]);
+		AXSetVoiceDeviceMix(voices[i], AX_DEVICE_TYPE_DRC, 0, drc[i]);
 
 		AXVoiceVeData veData;
 		veData.volume = 0x8000;
 		veData.delta = 0;
-		AXSetVoiceVe(voiceR, &veData);
-
-		AXVoiceEnd(voiceR);
+		AXSetVoiceVe(voices[i], &veData);
+		AXVoiceEnd(voices[i]);
 	}
 
-	S9xSetSamplesAvailableCallback(S9xAudioCallback, NULL);
 	resetAudio();
 }
 
-void WutEmulatorAudio::resetAudio() {
-	if (voiceL) { AXSetVoiceState(voiceL, AX_VOICE_STATE_STOPPED); AXSetVoiceCurrentOffset(voiceL, 0); }
-	if (voiceR) { AXSetVoiceState(voiceR, AX_VOICE_STATE_STOPPED); AXSetVoiceCurrentOffset(voiceR, 0); }
+void WutEmulatorAudio::resetAudio()
+{
+	if(voiceL) { AXSetVoiceState(voiceL, AX_VOICE_STATE_STOPPED); AXSetVoiceCurrentOffset(voiceL, 0); }
+	if(voiceR) { AXSetVoiceState(voiceR, AX_VOICE_STATE_STOPPED); AXSetVoiceCurrentOffset(voiceR, 0); }
 
 	writeOffset = 0;
-	started = false;
-	turboDrop = false;
 	queuedFrames = 0;
 	lastHwFrame = 0;
-	rateState = RATE_STATE_NEUTRAL;
+	correction = 1.0f;
+	started = false;
 
 	memset(ringL, 0, sizeof(ringL));
 	memset(ringR, 0, sizeof(ringR));
@@ -133,32 +118,79 @@ void WutEmulatorAudio::resetAudio() {
 	DCFlushRange(ringR, sizeof(ringR));
 }
 
-void WutEmulatorAudio::stop() {
-	if (voiceL) AXSetVoiceState(voiceL, AX_VOICE_STATE_STOPPED);
-	if (voiceR) AXSetVoiceState(voiceR, AX_VOICE_STATE_STOPPED);
+void WutEmulatorAudio::stop()
+{
+	if(voiceL) AXSetVoiceState(voiceL, AX_VOICE_STATE_STOPPED);
+	if(voiceR) AXSetVoiceState(voiceR, AX_VOICE_STATE_STOPPED);
 	started = false;
+	queuedFrames = 0;
 }
 
 void WutEmulatorAudio::shutdown()
 {
 	stop();
-	if (voiceL) { AXFreeVoice(voiceL); voiceL = nullptr; }
-	if (voiceR) { AXFreeVoice(voiceR); voiceR = nullptr; }
+	if(voiceL) { AXFreeVoice(voiceL); voiceL = nullptr; }
+	if(voiceR) { AXFreeVoice(voiceR); voiceR = nullptr; }
+}
+
+void WutEmulatorAudio::pause(bool value)
+{
+	if(value == paused)
+		return;
+	paused = value;
+
+	if(!started)
+		return;
+
+	const AXVoiceState state = paused ? AX_VOICE_STATE_STOPPED : AX_VOICE_STATE_PLAYING;
+	if(voiceL) AXSetVoiceState(voiceL, state);
+	if(voiceR) AXSetVoiceState(voiceR, state);
+	if(!paused)
+		lastHwFrame = AXGetVoiceCurrentOffsetEx(voiceL, ringL);
+}
+
+void WutEmulatorAudio::setSourceRate(uint32_t hz)
+{
+	if(hz < 4000 || hz > 96000)
+		return;
+	sourceRate = hz;
+	applyRate();
 }
 
 /****************************************************************************
- * armAndStartVoices
+ * applyRate
  *
- * Lazily called the first time enough is queued to start
- * ringL/ringR are fixed-address, fixed-size buffers, so offsets/src only
- * need to be (re-)established here, not on every mix.
+ * The voice plays at AX's native rate, so the sample rate conversion ratio is
+ * the rate the game produced samples at over that rate, scaled by how fast the
+ * emulation is currently running and the small queue-level correction.
  ***************************************************************************/
-void WutEmulatorAudio::armAndStartVoices() {
-	if (!voiceL || !voiceR)
+void WutEmulatorAudio::applyRate()
+{
+	if(!voiceL || !voiceR)
 		return;
 
-	// The oldest sample still queued: playback must resume from here
-	uint32_t startFrame = (writeOffset + RING_FRAMES - (queuedFrames % RING_FRAMES)) % RING_FRAMES;
+	const float axRate = (float) AXGetInputSamplesPerSec();
+	const float ratio = ((float) sourceRate / axRate) * speed * correction;
+
+	AXVoiceSrc src;
+	memset(&src, 0, sizeof(src));
+	src.ratio = (uint32_t) (0x00010000 * ratio);
+
+	AXSetVoiceSrc(voiceL, &src);
+	AXSetVoiceSrc(voiceR, &src);
+
+	const uint16_t srcType = (src.ratio == 0x00010000) ? 0 : 1; // 0 bypasses the SRC
+	AXSetVoiceSrcType(voiceL, srcType);
+	AXSetVoiceSrcType(voiceR, srcType);
+}
+
+void WutEmulatorAudio::armAndStartVoices()
+{
+	if(!voiceL || !voiceR)
+		return;
+
+	// The oldest sample still queued: playback begins there
+	const uint32_t startFrame = (writeOffset + RING_FRAMES - (queuedFrames % RING_FRAMES)) % RING_FRAMES;
 
 	AXVoiceOffsets offsets;
 	memset(&offsets, 0, sizeof(offsets));
@@ -173,127 +205,169 @@ void WutEmulatorAudio::armAndStartVoices() {
 	offsets.data = ringR;
 	AXSetVoiceOffsets(voiceR, &offsets);
 
-	AXVoiceSrc src;
-	memset(&src, 0, sizeof(src));
-	uint32_t axRate = AXGetInputSamplesPerSec();
-	src.ratio = (uint32_t) (0x00010000 * ((float) Settings.SoundPlaybackRate / (float) axRate));
-	AXSetVoiceSrc(voiceL, &src);
-	AXSetVoiceSrc(voiceR, &src);
-
-	uint16_t srcType = (src.ratio == 0x00010000) ? 0 : 1; // SRC bypass check
-	AXSetVoiceSrcType(voiceL, srcType);
-	AXSetVoiceSrcType(voiceR, srcType);
-
-	// queuedFrames is left exactly as it already was - it's already correct
+	applyRate();
 	lastHwFrame = startFrame;
 
-	AXSetVoiceState(voiceL, AX_VOICE_STATE_PLAYING);
-	AXSetVoiceState(voiceR, AX_VOICE_STATE_PLAYING);
+	if(!paused)
+	{
+		AXSetVoiceState(voiceL, AX_VOICE_STATE_PLAYING);
+		AXSetVoiceState(voiceR, AX_VOICE_STATE_PLAYING);
+	}
 }
 
 /****************************************************************************
  * syncQueuedFrames
  *
- * Refreshes queuedFrames (the authoritative "how much is unplayed" count)
- * against the hardware's actual read position, once voiceL has started.
- * Before that point queuedFrames is simply carried forward by every write
- * below (writeOffset and queuedFrames advance by the same CHUNK_FRAMES
- * each time), whatever its starting value already was - 0 after a fresh
- * resetAudio(), or a preserved backlog after a plain resume.
- *
- * Deliberately computed as a bounded per-call *delta* off the previous
- * hardware position, then clamped to what we know is queued - not as a
- * raw (writeOffset - currentFrame) subtraction.
+ * Refreshes queuedFrames against the hardware read position. It is computed
+ * as a bounded delta off the previous position (never more than what is known
+ * to be queued), not as a raw subtraction, so a late or early reading cannot
+ * wrap into a bogus value. What the hardware has consumed is cleared, so an
+ * underrun plays silence instead of the ring's old contents.
  ***************************************************************************/
-void WutEmulatorAudio::syncQueuedFrames() {
-	if (!started || !voiceL)
+void WutEmulatorAudio::syncQueuedFrames()
+{
+	if(!started || !voiceL || paused)
 		return;
 
-	uint32_t hwFrame = AXGetVoiceCurrentOffsetEx(voiceL, ringL);
-	uint32_t consumed = (hwFrame - lastHwFrame + RING_FRAMES) % RING_FRAMES;
+	const uint32_t hwFrame = AXGetVoiceCurrentOffsetEx(voiceL, ringL) % RING_FRAMES;
+	uint32_t consumed = (hwFrame + RING_FRAMES - lastHwFrame) % RING_FRAMES;
 
-	if (consumed > queuedFrames)
+	if(consumed > queuedFrames)
 		consumed = queuedFrames;
+
+	for(uint32_t i = 0; i < consumed; i++)
+	{
+		const uint32_t at = (lastHwFrame + i) % RING_FRAMES;
+		ringL[at] = 0;
+		ringR[at] = 0;
+	}
+	if(consumed > 0)
+	{
+		// the cleared span may wrap, flush the whole ring's touched part
+		const uint32_t first = std::min(consumed, RING_FRAMES - lastHwFrame);
+		DCFlushRange(&ringL[lastHwFrame], first * sizeof(int16_t));
+		DCFlushRange(&ringR[lastHwFrame], first * sizeof(int16_t));
+		if(first < consumed)
+		{
+			DCFlushRange(&ringL[0], (consumed - first) * sizeof(int16_t));
+			DCFlushRange(&ringR[0], (consumed - first) * sizeof(int16_t));
+		}
+	}
 
 	queuedFrames -= consumed;
 	lastHwFrame = hwFrame;
 }
 
-void WutEmulatorAudio::audioCallback() {
+uint32_t WutEmulatorAudio::getQueuedFrames()
+{
 	syncQueuedFrames();
-	int unplayed = getUnplayedBuffers();
-	double rate = RATE_NEUTRAL;
+	return queuedFrames;
+}
 
-	if (Settings.TurboMode) {
-		rateState = RATE_STATE_NEUTRAL;
+void WutEmulatorAudio::push(const int16_t * stereoBE, uint32_t frames, uint32_t hz, float emuSpeed)
+{
+	if(!voiceL || !voiceR || !stereoBE || frames == 0)
+		return;
 
-		// fast-forward hysteresis:
-		// If dropping, keep dropping until the queue drains to 4.
-		// If capturing, keep capturing until the queue fills to 12.
-		if (turboDrop && unplayed <= UNPLAYED_LOW_WATER) {
-			turboDrop = false;
-		} else if (!turboDrop && unplayed >= MAX_QUEUED_BUFFERS) {
-			turboDrop = true;
-		}
-	} else {
-		turboDrop = false; // Always reset when leaving turbo
+	if(hz != sourceRate)
+		setSourceRate(hz);
 
-		if (rateState == RATE_STATE_DRAINING) {
-			if (unplayed <= UNPLAYED_HIGH_RELEASE) {
-				rateState = RATE_STATE_NEUTRAL;
-			}
-		}
-		else if (rateState == RATE_STATE_FILLING) {
-			if (unplayed >= UNPLAYED_LOW_RELEASE) {
-				rateState = RATE_STATE_NEUTRAL;
-			}
-		}
+	const float clamped = std::min(SPEED_MAX, std::max(SPEED_MIN, emuSpeed));
 
-		if (unplayed > UNPLAYED_HIGH_WATER) {
-			rateState = RATE_STATE_DRAINING;
-		}
-		else if (unplayed < UNPLAYED_LOW_WATER) {
-			rateState = RATE_STATE_FILLING;
-		}
+	syncQueuedFrames();
 
-		if (rateState == RATE_STATE_DRAINING) {
-			rate = RATE_SLOW_DOWN;
-		}
-		else if (rateState == RATE_STATE_FILLING) {
-			rate = RATE_SPEED_UP;
-		}
+	// Gentle correction keeps the queue inside its band
+	float wanted = 1.0f;
+	if(queuedFrames > HIGH_WATER)
+		wanted = CORRECT_DRAIN;
+	else if(queuedFrames < LOW_WATER)
+		wanted = CORRECT_FILL;
+
+	if(wanted != correction || clamped != speed)
+	{
+		correction = wanted;
+		speed = clamped;
+		if(started)
+			applyRate();
 	}
 
-	S9xUpdateDynamicRate(rate);
-	S9xFinalizeSamples();
+	// Too much queued already: the oldest audio is no use, drop the new block
+	if(queuedFrames + frames > MAX_QUEUED_FRAMES)
+		return;
 
-	while (S9xGetSampleCount() >= CHUNK_SAMPLES) {
-		unplayed = getUnplayedBuffers();
+	for(uint32_t i = 0; i < frames; i++)
+	{
+		ringL[writeOffset] = stereoBE[i * 2];
+		ringR[writeOffset] = stereoBE[i * 2 + 1];
+		writeOffset = (writeOffset + 1) % RING_FRAMES;
+	}
 
-		if (!turboDrop && unplayed < MAX_QUEUED_BUFFERS) {
-			S9xMixSamples(mixScratch, CHUNK_SAMPLES);
+	// flush the span just written (it may wrap)
+	const uint32_t startAt = (writeOffset + RING_FRAMES - frames) % RING_FRAMES;
+	const uint32_t first = std::min(frames, RING_FRAMES - startAt);
+	DCFlushRange(&ringL[startAt], first * sizeof(int16_t));
+	DCFlushRange(&ringR[startAt], first * sizeof(int16_t));
+	if(first < frames)
+	{
+		DCFlushRange(&ringL[0], (frames - first) * sizeof(int16_t));
+		DCFlushRange(&ringR[0], (frames - first) * sizeof(int16_t));
+	}
 
-			const int16_t* interleaved = reinterpret_cast<const int16_t*>(mixScratch);
-			for (int i = 0; i < CHUNK_FRAMES; i++) {
-				ringL[writeOffset + i] = interleaved[i * 2];
-				ringR[writeOffset + i] = interleaved[i * 2 + 1];
-			}
+	queuedFrames += frames;
 
-			DCFlushRange(&ringL[writeOffset], CHUNK_FRAMES * sizeof(int16_t));
-			DCFlushRange(&ringR[writeOffset], CHUNK_FRAMES * sizeof(int16_t));
+	if(!started && queuedFrames >= START_FRAMES)
+	{
+		armAndStartVoices();
+		started = true;
+	}
+}
 
-			writeOffset = (writeOffset + CHUNK_FRAMES) % RING_FRAMES;
-			queuedFrames += CHUNK_FRAMES;
+/****************************************************************************
+ * C interface used by the N64 audio plugin (core/audio_wiiu.c)
+ ***************************************************************************/
+extern "C"
+{
+	int wiiu_audio_open(void)
+	{
+		if(!instance)
+			return -1;
+		instance->init();
+		return 0;
+	}
 
-			// Handle initial voice pre-roll / priming
-			if (!started && getUnplayedBuffers() >= UNPLAYED_START_LEVEL) {
-				armAndStartVoices();
-				started = true;
-			}
-		} else {
-			// Ring is full (Turbo mode running faster than real-time playback).
-			// Safely drop excess samples to keep APU emulation moving.
-			S9xMixSamples(dummy, CHUNK_SAMPLES);
-		}
+	void wiiu_audio_close(void)
+	{
+		if(instance)
+			instance->stop();
+	}
+
+	void wiiu_audio_reset(void)
+	{
+		if(instance)
+			instance->resetAudio();
+	}
+
+	void wiiu_audio_stop(void)
+	{
+		if(instance)
+			instance->stop();
+	}
+
+	void wiiu_audio_pause(int paused)
+	{
+		if(instance)
+			instance->pause(paused != 0);
+	}
+
+	void wiiu_audio_set_source_rate(unsigned int hz)
+	{
+		if(instance)
+			instance->setSourceRate(hz);
+	}
+
+	void wiiu_audio_push(const short * stereo_be, unsigned int frames, unsigned int hz, float speed)
+	{
+		if(instance)
+			instance->push(stereo_be, frames, hz, speed);
 	}
 }

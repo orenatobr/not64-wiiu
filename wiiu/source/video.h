@@ -1,36 +1,21 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * softdev July 2006
- * Michniewski 2008
- * Daryl Borth 2008-2026
+ * Based on Snes9x GX by softdev, Michniewski and Daryl Borth.
  *
  * video.h
  *
- * Video routines
+ * Screenshot of the game frame, used for previews and as the menu backdrop.
  ***************************************************************************/
 
 #ifndef _GCVIDEOH_
 #define _GCVIDEOH_
 
-#include <unistd.h>
-
-// Offset into buffer to allow a two pixel border around the whole rendered
-// SNES image. This is a speed up hack to allow some of the image processing
-// routines to access black pixel data outside the normal bounds of the buffer.
-#define EXT_WIDTH (MAX_SNES_WIDTH + 4)
-#define EXT_PITCH (EXT_WIDTH * 2)
-#define EXT_HEIGHT (MAX_SNES_HEIGHT + 4)
-#define EXT_OFFSET (EXT_PITCH * 2 + 2 * 2)
-
-void AllocGfxMem();
-void setGFX();
-void ClearScreenshot();
-void TakeScreenshot();
+#include <stdint.h>
 
 typedef struct
 {
-	uint8_t * buffer;
+	uint8_t * buffer; // PNG data
 	int size;
 	int width;
 	int height;
@@ -41,5 +26,8 @@ typedef struct
 } GameScreenPng;
 
 extern GameScreenPng gameScreenPng;
+
+void ClearScreenshot();
+void TakeScreenshot();
 
 #endif

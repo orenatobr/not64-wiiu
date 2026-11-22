@@ -13,7 +13,7 @@
 
 #include <unistd.h>
 #include <stdint.h>
-#include "snes9xgx.h"
+#include "not64gx.h"
 
 #define MAXJOLIET 255
 #ifdef HW_DOL
@@ -56,7 +56,6 @@ enum
 	ICON_SMB
 };
 
-extern unsigned long SNESROMSize;
 extern char szname[MAXPATHLEN];
 extern bool inSz;
 
@@ -65,9 +64,6 @@ bool isValidLoadDevice(int device);
 bool isValidSaveDevice(int device);
 int getNextLoadDevice(int device);
 int getNextSaveDevice(int device);
-// Moves the files an older version named differently to where they belong, for the game
-// that is loaded: an auto slot Snapshot, and a Cartridge Save that was named for Auto
-void MigrateSaveFileNames();
 bool MakeFilePath(char filepath[], int type, char * filename = nullptr, int filenum = -2);
 int UpdateDirName();
 int OpenGameList();

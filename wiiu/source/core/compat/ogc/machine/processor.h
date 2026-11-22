@@ -8,6 +8,8 @@
 
 #include "../../gctypes.h"
 
+#if defined(__powerpc__) || defined(__PPC__)
+
 static inline u32 __lwbrx(const void *base, u32 index)
 {
 	u32 res;
@@ -31,5 +33,37 @@ static inline void __sthbrx(void *base, u32 index, u16 value)
 {
 	__asm__ __volatile__("sthbrx %0,%1,%2" : : "r"(value), "b"(index), "r"(base) : "memory");
 }
+
+#else /* host builds (unit tests): the same operations in plain C, for any endianness.
+        * lwbrx / lhbrx load a value and reverse its bytes relative to the host's
+        * own order, so a native load followed by a byte swap is the same thing. */
+
+static inline u32 __lwbrx(const void *base, u32 index)
+{
+	u32 v;
+	__builtin_memcpy(&v, (const u8 *)base + index, sizeof(v));
+	return __builtin_bswap32(v);
+}
+
+static inline u16 __lhbrx(const void *base, u32 index)
+{
+	u16 v;
+	__builtin_memcpy(&v, (const u8 *)base + index, sizeof(v));
+	return __builtin_bswap16(v);
+}
+
+static inline void __stwbrx(void *base, u32 index, u32 value)
+{
+	value = __builtin_bswap32(value);
+	__builtin_memcpy((u8 *)base + index, &value, sizeof(value));
+}
+
+static inline void __sthbrx(void *base, u32 index, u16 value)
+{
+	value = __builtin_bswap16(value);
+	__builtin_memcpy((u8 *)base + index, &value, sizeof(value));
+}
+
+#endif
 
 #endif

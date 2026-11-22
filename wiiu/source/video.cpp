@@ -1,16 +1,12 @@
 /****************************************************************************
- * Snes9x GX
+ * not64 for Wii U
  *
- * softdev July 2006
- * crunchy2 May 2007
- * Michniewski 2008
- * Daryl Borth 2008-2026
+ * Based on Snes9x GX by softdev, Michniewski and Daryl Borth.
  *
  * video.cpp
  ***************************************************************************/
 
-#include <unistd.h>
-#include <malloc.h>
+#include <string.h>
 
 #include "memmanager.h"
 #include "video.h"
@@ -19,34 +15,7 @@
 
 #include "drivers/Platform.h"
 
-#include "snes9x/memmap.h"
-
-#define SNES9XGFX_SIZE 		(EXT_PITCH*EXT_HEIGHT)
-
-static unsigned char * snes9xgfx = nullptr;
 GameScreenPng gameScreenPng;
-
-/****************************************************************************
- * AllocGfxMem
- ***************************************************************************/
-void AllocGfxMem()
-{
-	snes9xgfx = (unsigned char *)memalign(32, SNES9XGFX_SIZE);
-	memset(snes9xgfx, 0, SNES9XGFX_SIZE);
-
-	GFX.Pitch = EXT_PITCH;
-	GFX.Screen = (uint16_t*)(snes9xgfx + EXT_OFFSET);
-}
-
-/****************************************************************************
- * setGFX
- *
- * Setup the global GFX information for Snes9x
- ***************************************************************************/
-void setGFX()
-{
-	GFX.Pitch = EXT_PITCH;
-}
 
 void ClearScreenshot()
 {
@@ -65,9 +34,13 @@ void ClearScreenshot()
  ***************************************************************************/
 void TakeScreenshot()
 {
+	if(gameScreenPng.width <= 0 || gameScreenPng.height <= 0)
+		return;
+
 	AllocSaveBuffer();
 	platform->getVideo()->getEmulatorVideo()->readFrameRGB24(savebuffer);
 	uint32_t size = 0;
+	ClearScreenshot();
 	gameScreenPng.buffer = EncodePNGFromRGB24(gameScreenPng.width, gameScreenPng.height, savebuffer, 0, &size);
 	gameScreenPng.size = (int) size;
 	FreeSaveBuffer();
