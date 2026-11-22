@@ -82,6 +82,8 @@ struct Backend2 : Backend {
 
 	GX2ColorBuffer efbCb;
 	GX2Texture efbTex;
+	GpuTex *presentTex[2];   /* frames handed to the app: valid until the second following present */
+	int presentParity;
 	GX2DepthBuffer depth;
 	void *hiZ;
 
@@ -107,11 +109,12 @@ struct Backend2 : Backend {
 	int frame;
 	uint32_t texCount;
 
-	Backend2() : ctx(0), inFrame(false), stateKnown(false), scale(1), efbW(0), efbH(0), hiZ(0), vs(0), fetch(0),
+	Backend2() : ctx(0), inFrame(false), stateKnown(false), scale(1), efbW(0), efbH(0), presentParity(0), hiZ(0), vs(0), fetch(0),
 	             curPs(-1), ring(0), ringPos(0), lastValid(false), lastVsValid(false), lastPsRows(0), frame(0), texCount(0)
 	{
 		memset(&efbCb, 0, sizeof(efbCb));
 		memset(&efbTex, 0, sizeof(efbTex));
+		presentTex[0] = presentTex[1] = 0;
 		memset(&depth, 0, sizeof(depth));
 		memset(&last, 0, sizeof(last));
 		memset(ps, 0, sizeof(ps));
@@ -198,6 +201,12 @@ bool Backend2::setup(int s)
 	GX2InitColorBufferRegs(&efbCb);
 	texViewOf(&efbTex, efbCb.surface);
 
+	for (int i = 0; i < 2; i++) {
+		presentTex[i] = (GpuTex *) createRenderTexture(efbW, efbH);
+		if (!presentTex[i])
+			return false;
+	}
+
 	/* depth: D24S8 float, no HiZ */
 	memset(&depth, 0, sizeof(depth));
 	if (!makeSurface(&depth.surface, efbW, efbH, GX2_SURFACE_USE_DEPTH_BUFFER, GX2_SURFACE_FORMAT_FLOAT_D24_S8))
@@ -252,6 +261,12 @@ bool Backend2::setup(int s)
 void Backend2::teardown()
 {
 	GX2DrawDone();
+	for (int i = 0; i < 2; i++) {
+		if (presentTex[i]) {
+			destroyTexture(presentTex[i]);
+			presentTex[i] = 0;
+		}
+	}
 	releaseRetired(true);
 	for (int i = 0; i < kShaderTevStages; i++) {
 		delete ps[i];
@@ -630,13 +645,18 @@ void Backend2::copyEfbToTexture(TexHandle dstH, int dstW, int dstH_, int x, int 
 void Backend2::present(int widthPx, int heightPx)
 {
 	ensureFrame();
-	GX2Invalidate(GX2_INVALIDATE_MODE_COLOR_BUFFER, efbCb.surface.image, efbCb.surface.imageSize);
-	GX2Invalidate(GX2_INVALIDATE_MODE_TEXTURE, efbCb.surface.image, efbCb.surface.imageSize);
+	/*
+	 * The EFB is cleared right after GX_CopyDisp() and reused for the next frame, so the app gets a
+	 * private copy (two buffers alternate: a frame stays valid until the second following present).
+	 */
+	GpuTex *pt = presentTex[presentParity];
+	presentParity ^= 1;
+	copyEfbToTexture(pt, efbW, efbH, 0, 0, kBaseW, kBaseH);
 	GX2Flush();
 	inFrame = false;
 	frame++;
 	releaseRetired(false);
-	Wiiu_PresentEmuFrame(&efbTex, widthPx > efbW ? efbW : widthPx, heightPx > efbH ? efbH : heightPx);
+	Wiiu_PresentEmuFrame(&pt->tex, widthPx > efbW ? efbW : widthPx, heightPx > efbH ? efbH : heightPx);
 }
 
 TexHandle Backend2::createTexture(int w, int h, const uint8_t *rgba)

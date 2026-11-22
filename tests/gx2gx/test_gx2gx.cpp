@@ -11,6 +11,7 @@
 
 #include "../../wiiu/source/gx2gx/Gx2Backend.h"
 #include "../../wiiu/source/gx2gx/Gx2Gx.h"
+#include "../../wiiu/source/gx2gx/Gx2Map.h"
 #include "../../wiiu/source/gx2gx/Gx2Tev.h"
 #include "../../wiiu/source/gx2gx/Gx2Tex.h"
 #include "../../wiiu/source/gx2gx/compat/gccore.h"
@@ -543,9 +544,47 @@ static void testClearAndPresent(MockBackend &mb)
 	GX_SetDrawSyncCallback(0);
 }
 
+static void testMaps()
+{
+	/* GX blend factors are positional: "SRCCLR" on the source side means the destination colour */
+	CHECK(mapBlendFactor(GX_BL_SRCCLR, false) == G2_BLEND_DST_COLOR);
+	CHECK(mapBlendFactor(GX_BL_SRCCLR, true) == G2_BLEND_SRC_COLOR);
+	CHECK(mapBlendFactor(GX_BL_INVSRCCLR, false) == G2_BLEND_INV_DST_COLOR);
+	CHECK(mapBlendFactor(GX_BL_INVSRCCLR, true) == G2_BLEND_INV_SRC_COLOR);
+	CHECK(mapBlendFactor(GX_BL_SRCALPHA, false) == G2_BLEND_SRC_ALPHA && mapBlendFactor(GX_BL_INVSRCALPHA, true) == G2_BLEND_INV_SRC_ALPHA);
+	CHECK(mapBlendFactor(GX_BL_DSTALPHA, false) == G2_BLEND_DST_ALPHA && mapBlendFactor(GX_BL_INVDSTALPHA, true) == G2_BLEND_INV_DST_ALPHA);
+	CHECK(mapBlendFactor(GX_BL_ZERO, true) == G2_BLEND_ZERO && mapBlendFactor(GX_BL_ONE, false) == G2_BLEND_ONE);
+	/* logic ops: truth table with S = 0xCC and D = 0xAA */
+	for (int op = 0; op < 16; op++) {
+		int rop = mapLogicOp(op);
+		int S = 0xCC, D = 0xAA, expect = -1;
+		switch (op) {
+		case GX_LO_CLEAR: expect = 0; break;
+		case GX_LO_AND: expect = S & D; break;
+		case GX_LO_REVAND: expect = S & ~D; break;
+		case GX_LO_COPY: expect = S; break;
+		case GX_LO_INVAND: expect = ~S & D; break;
+		case GX_LO_NOOP: expect = D; break;
+		case GX_LO_XOR: expect = S ^ D; break;
+		case GX_LO_OR: expect = S | D; break;
+		case GX_LO_NOR: expect = ~(S | D); break;
+		case GX_LO_EQUIV: expect = ~(S ^ D); break;
+		case GX_LO_INV: expect = ~D; break;
+		case GX_LO_REVOR: expect = S | ~D; break;
+		case GX_LO_INVCOPY: expect = ~S; break;
+		case GX_LO_INVOR: expect = ~S | D; break;
+		case GX_LO_NAND: expect = ~(S & D); break;
+		case GX_LO_SET: expect = 0xFF; break;
+		}
+		CHECK(rop == (expect & 0xFF));
+	}
+	CHECK(mapWrap(GX_REPEAT) == 0 && mapWrap(GX_MIRROR) == 1 && mapWrap(GX_CLAMP) == 2);
+	CHECK(mapChannelMask(true, false) == 7 && mapChannelMask(false, true) == 8 && mapChannelMask(true, true) == 15);
+}
+
 static void testGuMath()
 {
-	Mtx44 m, inv, prod;
+	Mtx44 m, inv;
 	guOrtho(m, 0, 480, 0, 640, 0, 1);
 	CHECK_NEAR(m[0][0], 2.0 / 640, 1e-9); CHECK_NEAR(m[0][3], -1.0, 1e-9);
 	CHECK_NEAR(m[1][1], -2.0 / 480, 1e-9); CHECK_NEAR(m[1][3], 1.0, 1e-9);
@@ -553,7 +592,6 @@ static void testGuMath()
 	CHECK(guMtx44Inverse(m, inv) == 1);
 	for (int i = 0; i < 4; i++) for (int j = 0; j < 4; j++) {
 		float s = 0; for (int k = 0; k < 4; k++) s += m[i][k] * inv[k][j];
-		prod[i][j] = s;
 		CHECK_NEAR(s, i == j ? 1.0 : 0.0, 1e-5);
 	}
 	Mtx44 z; memset(z, 0, sizeof(z));
@@ -618,6 +656,7 @@ int main(int argc, char **argv)
 	testSwapCompMap();
 	testTexDecode();
 	testGuMath();
+	testMaps();
 
 	MockBackend mb;
 	coreSetBackend(&mb, 2);

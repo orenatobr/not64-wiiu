@@ -218,11 +218,23 @@ void VI_GX_init() {
 	VI.EFBcleared = true;
 	VI.copy_fb = false;
 	VI.which_fb = 1;
+#ifdef __WIIU__
+	VI_GX_setFB(NULL, NULL);	// installs the dummy XFB tokens (see VI_GX_setFB)
+#endif
 }
 
 void VI_GX_setFB(unsigned int* fb1, unsigned int* fb2){
+#ifdef __WIIU__
+	// There is no XFB on Wii U: GX_CopyDisp() hands the frame to the app when it gets a non-NULL
+	// destination, so make sure that is the case whatever the app passes (it may pass NULL).
+	static unsigned int dummyXfb[2][8];
+	(void) fb1; (void) fb2;
+	VI.xfb[0] = dummyXfb[0];
+	VI.xfb[1] = dummyXfb[1];
+#else
 	VI.xfb[0] = fb1;
 	VI.xfb[1] = fb2;
+#endif
 }
 
 unsigned int* VI_GX_getScreenPointer(){ return VI.xfb[VI.which_fb]; }
