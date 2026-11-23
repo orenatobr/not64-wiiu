@@ -6,3 +6,6 @@ dist/
 *.rpx
 *.map
 graphify-out/
+
+# host test binaries
+tests/build/
