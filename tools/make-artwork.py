@@ -148,11 +148,58 @@ def icon():
     return img.convert("RGB")
 
 
+def console():
+    """The Nintendo 64 seen from the front, for the game list when no game is picked."""
+    W, H = 300, 240
+    k = SS
+    img = Image.new("RGBA", (W * k, H * k), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    def box(x0, y0, x1, y1):
+        return [x0 * k, y0 * k, x1 * k, y1 * k]
+
+    def vgrad(rect, top, bottom, radius):
+        x0, y0, x1, y1 = [int(v * k) for v in rect]
+        g = gradient((x1 - x0, y1 - y0), top, bottom).convert("RGBA")
+        m = Image.new("L", g.size, 0)
+        ImageDraw.Draw(m).rounded_rectangle([0, 0, g.size[0] - 1, g.size[1] - 1], radius=radius * k, fill=255)
+        img.paste(g, (x0, y0), m)
+
+    # soft shadow under the console
+    sh = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    ImageDraw.Draw(sh).ellipse(box(26, 188, 274, 226), fill=(0, 0, 0, 90))
+    img.alpha_composite(sh.filter(ImageFilter.GaussianBlur(7 * k)))
+    d = ImageDraw.Draw(img)
+
+    # cartridge sticking out of the slot (green label)
+    vgrad((112, 18, 188, 74), (150, 150, 156), (104, 104, 110), 6)
+    d.rounded_rectangle(box(120, 28, 180, 56), radius=3 * k, fill=(16, 118, 56))
+    d.rectangle(box(128, 36, 172, 40), fill=(255, 255, 255, 220))
+    d.rectangle(box(128, 45, 160, 48), fill=(255, 226, 92))
+    # top deck with the cartridge slot
+    vgrad((26, 62, 274, 106), (112, 112, 118), (78, 78, 84), 10)
+    d.rounded_rectangle(box(104, 62, 196, 74), radius=3 * k, fill=(22, 22, 24))
+    # front face
+    vgrad((22, 100, 278, 200), (76, 76, 82), (40, 40, 44), 12)
+    # power switch and reset button
+    d.rounded_rectangle(box(40, 112, 70, 128), radius=4 * k, fill=(198, 198, 204))
+    d.rectangle(box(48, 117, 62, 123), fill=(110, 110, 116))
+    d.ellipse(box(238, 111, 258, 131), fill=(198, 198, 204))
+    d.ellipse(box(243, 116, 253, 126), fill=(128, 128, 134))
+    # four controller ports with the player colors above them
+    for cx, col in zip((78, 126, 174, 222), DOTS):
+        d.ellipse(box(cx - 4, 142, cx + 4, 150), fill=col)
+        d.rounded_rectangle(box(cx - 17, 156, cx + 17, 184), radius=5 * k, fill=(20, 20, 22))
+        d.rounded_rectangle(box(cx - 12, 161, cx + 12, 178), radius=3 * k, fill=(46, 46, 50))
+    return img.resize((W, H), Image.LANCZOS)
+
+
 def main():
     os.makedirs(OUT_META, exist_ok=True)
     os.makedirs(OUT_IMG, exist_ok=True)
     logo(352, 117).save(os.path.join(OUT_IMG, "logo.png"))
     logo(352, 117, brighten=True).save(os.path.join(OUT_IMG, "logo_over.png"))
+    console().save(os.path.join(OUT_IMG, "default_preview.png"))
     icon().save(os.path.join(OUT_META, "icon.png"))
     splash(1280, 720, 30).save(os.path.join(OUT_META, "tv_splash.png"))
     splash(854, 480, 20).save(os.path.join(OUT_META, "drc_splash.png"))
