@@ -203,8 +203,13 @@ def write_sd_files(sd_dir: Path, rom: Path | None, autoboot_rom: str | None) -> 
 
 def encrypt(title_dir: Path, out: Path, nuspacker: Path, key: Path) -> None:
     """Runs NUSPacker (JNUSPacker) to make the installable, encrypted title."""
-    if not nuspacker.is_file() or not key.is_file():
-        raise FileNotFoundError("NUSPacker.jar and the key file must both exist")
+    for path, what in ((nuspacker, "NUSPacker.jar"), (key, "the Wii U common key file")):
+        if not path.is_file():
+            raise SystemExit(
+                f"cannot make the installable WUP: {what} not found at {path}. "
+                "The title tree in the output folder is the plain Cemu/Loadiine layout; "
+                "encrypting it needs NUSPacker and your own common key."
+            )
     out.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         ["java", "-jar", str(nuspacker), "-in", str(title_dir), "-out", str(out), "-encryptKeyWith", key.read_text().strip()],
