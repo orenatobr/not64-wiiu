@@ -273,6 +273,26 @@ static void OnRumble(int port, int on)
 }
 
 /****************************************************************************
+ * IsPadConnected
+ *
+ * The four logical controllers always exist; one is plugged in when some
+ * device (GamePad, Pro Controller, Wiimote, ...) reports itself connected.
+ ***************************************************************************/
+static bool IsPadConnected(int chan)
+{
+	if(!controller[chan])
+		return false;
+
+	const InputPadData& pad = controller[chan]->getPadData();
+	for(uint32_t hw = 0; hw < INPUT_HW_MAX; hw++)
+	{
+		if(pad.hw_connected[hw])
+			return true;
+	}
+	return false;
+}
+
+/****************************************************************************
  * SetControllers
  *
  * Tells the core which ports have a controller and which Pak is in it.
@@ -294,7 +314,7 @@ void SetControllers()
 		bool present = (port == 0);
 		for(int chan = 0; chan < 4; chan++)
 		{
-			if(playerMapping[chan] == port && controller[chan])
+			if(playerMapping[chan] == port && IsPadConnected(chan))
 				present = true;
 		}
 
