@@ -20,7 +20,9 @@
 
 /* Set to 1 once the recompiler allocates from the codegen area (see
  * docs/DYNAREC.md). Until then it must not be offered, even if the area exists. */
+#ifndef RECOMPILER_USES_CODEGEN_AREA
 #define RECOMPILER_USES_CODEGEN_AREA 0
+#endif
 
 void wiiu_jit_query(WiiuJitInfo *info)
 {
@@ -47,4 +49,21 @@ int wiiu_jit_available(void)
 
 	wiiu_jit_query(&info);
 	return info.area != 0 && info.size >= MIN_CODEGEN_BYTES;
+}
+
+/* The part of the codegen area the recompiler's code cache lives in, or 0 when there is none.
+ *
+ * TEST ONLY (make DYNAREC_TEST=1). This hands the recompiler the area as plain writable memory, which is
+ * what Cemu allows. A console keeps the area execute-only: it needs OSSwitchSecCodeGenMode / OSCodegenCopy
+ * around every write, and only the core OSGetCodegenCore() names may use it. None of that is done yet, and
+ * the recompiler still stalls in real games (see docs/DYNAREC.md), so it stays off. */
+void *wiiu_jit_cache(unsigned size)
+{
+	WiiuJitInfo info;
+
+	if (!wiiu_jit_available())
+		return 0;
+
+	wiiu_jit_query(&info);
+	return info.size >= size ? info.area : 0;
 }

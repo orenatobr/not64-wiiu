@@ -18,6 +18,9 @@ void wiiu_jit_query(WiiuJitInfo *info);
 /* 1 when the recompiler can run here. */
 int wiiu_jit_available(void);
 
+/* Memory for the recompiler's code cache (executable), or 0 when there is none. */
+void *wiiu_jit_cache(unsigned size);
+
 #ifdef __cplusplus
 }
 #endif

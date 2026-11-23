@@ -21,6 +21,9 @@
 **/
 
 
+#ifdef __WIIU__
+#include "../wiiu/source/core/wiiu_jit.h"
+#endif
 #include <ogc/lwp_heap.h>
 #include <ogc/cache.h>
 #include <stdlib.h>
@@ -313,8 +316,17 @@ void RecompCache_Link(PowerPC_func* src_func, PowerPC_instr* src_instr,
 void RecompCache_Init(void){
 	if(!cache){
 		cache = malloc(sizeof(heap_cntrl));
+#ifdef __WIIU__
+		/* generated code must live in the executable "codegen" area the OS lends */
+		void *cacheMem = wiiu_jit_cache(RECOMP_CACHE_SIZE);
+		if(!cacheMem)
+			cacheMem = memalign(32,RECOMP_CACHE_SIZE);
+		__lwp_heap_init(cache, cacheMem,
+		                RECOMP_CACHE_SIZE, 32);
+#else
 		__lwp_heap_init(cache, memalign(32,RECOMP_CACHE_SIZE),
 		                RECOMP_CACHE_SIZE, 32);
+#endif
 	}
 	if(!meta_cache){
 		meta_cache = malloc(sizeof(heap_cntrl));
