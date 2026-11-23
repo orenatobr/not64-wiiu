@@ -1,9 +1,11 @@
 # Host-side unit tests (no Wii U toolchain needed): plain gcc/clang on the build machine.
 # not CC: the Wii U build exports the cross compiler in CC
 HOSTCC ?= gcc
-CFLAGS ?= -O1 -g -Wall -Wextra -Wno-unused-parameter -fsanitize=address,undefined -fno-omit-frame-pointer
+# SAN=1 adds the address and undefined behaviour sanitizers (some CI runners cannot start them)
+SANFLAGS := $(if $(SAN),-fsanitize=address,undefined -fno-omit-frame-pointer,)
+CFLAGS = -O1 -g -Wall -Wextra -Wno-unused-parameter $(SANFLAGS)
 # the original core is old C: build the files from it that the tests use leniently
-CORE_CFLAGS := -std=gnu17 -fgnu89-inline -w -fsanitize=address,undefined -O1 -g -DHW_RVL -D__WIIU__ \
+CORE_CFLAGS = -std=gnu17 -fgnu89-inline -w $(SANFLAGS) -O1 -g -DHW_RVL -D__WIIU__ \
 		-I../wiiu/source/core/compat
 BUILD := build
 
@@ -13,7 +15,7 @@ TESTS := test_heap test_save test_rom
 
 .PHONY: all clean
 all: $(addprefix $(BUILD)/,$(TESTS))
-	@set -e; for t in $(TESTS); do ./$(BUILD)/$$t; done
+	@set -e; for t in $(TESTS); do timeout 120 ./$(BUILD)/$$t; done
 
 $(BUILD)/test_heap: test_heap.c $(GLUE)/wiiu_heap.c $(GLUE)/compat/ogc/lwp_heap.h
 	@mkdir -p $(BUILD)
