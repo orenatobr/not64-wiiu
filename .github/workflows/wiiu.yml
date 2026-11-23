@@ -38,6 +38,10 @@ jobs:
         run: |
           python3 tools/make_wup.py executables/not64-wiiu.rpx dist/not64-wup/not64
           (cd dist/not64-wup && zip -r ../../not64-wiiu-wup.zip not64)
+          # Conker's Bad Fur Day title: no ROM inside, you copy yours to sd:/not64/roms/Conker.z64
+          python3 tools/make_wup.py executables/not64-wiiu.rpx dist/conker/title --name "Conker's Bad Fur Day" \
+            --title-id 000500001e64c0ab --autoboot roms/Conker.z64 --sd-dir dist/conker/sd
+          (cd dist/conker && zip -r ../../not64-conker-wup.zip title sd)
           mkdir -p dist/not64-wiiu/wiiu/apps dist/not64-wiiu/not64/roms dist/not64-wiiu/not64/saves
           cp executables/not64-wiiu.wuhb dist/not64-wiiu/wiiu/apps/not64.wuhb
           touch dist/not64-wiiu/not64/roms/put-your-n64-roms-here dist/not64-wiiu/not64/saves/saves-go-here
@@ -50,6 +54,7 @@ jobs:
           path: |
             not64-wiiu.zip
             not64-wiiu-wup.zip
+            not64-conker-wup.zip
             executables/not64-wiiu.wuhb
 
   release:
@@ -77,10 +82,10 @@ jobs:
         run: |
           # The release always targets main and is marked Latest.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" not64-wiiu.zip not64-wiiu-wup.zip executables/not64-wiiu.wuhb --clobber
+            gh release upload "$TAG" not64-wiiu.zip not64-wiiu-wup.zip not64-conker-wup.zip executables/not64-wiiu.wuhb --clobber
             gh release edit "$TAG" --target main --latest
           else
-            gh release create "$TAG" not64-wiiu.zip not64-wiiu-wup.zip executables/not64-wiiu.wuhb \
+            gh release create "$TAG" not64-wiiu.zip not64-wiiu-wup.zip not64-conker-wup.zip executables/not64-wiiu.wuhb \
               --target main --latest \
               --title "not64 for Wii U $TAG" \
               --notes-file wiiu/RELEASE_NOTES.md
