@@ -82,6 +82,7 @@ __attribute__((warn_unused_result)) bool MakeFilePathForFolderPath(char * filepa
 int BrowserLoadSz();
 int BrowserChangeFolder();
 int BrowserLoadFile();
+int AutobootLoad();
 bool AutoloadGame(char* filepath, char* filename);
 
 #endif

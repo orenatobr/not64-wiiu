@@ -54,6 +54,26 @@ Folders (all under `sd:/not64/`, or the same on USB):
 
 Game saves use the same file names as not64 on the Wii, so you can copy them across.
 
+## Installable title (WUP)
+
+The release has `not64-wiiu-wup.zip`: the same app laid out as a Wii U title. Build it yourself with
+`python3 tools/make_wup.py executables/not64-wiiu.rpx out/not64` (needs Pillow). The `cos.xml` asks for a
+16 MiB codegen area, which is what the recompiler needs on a console (see `docs/DYNAREC.md`).
+
+To install on a console, encrypt it with NUSPacker and your own Wii U common key, then install with WUP
+Installer GX2:
+
+    python3 tools/make_wup.py executables/not64-wiiu.rpx out/not64 \
+        --nuspacker NUSPacker.jar --key common_key.txt --wup-out out/wup
+
+A title for one game (nothing from the game goes into the title; the ROM stays on the SD card):
+
+    python3 tools/make_wup.py executables/not64-wiiu.rpx out/conker --name "Conker's Bad Fur Day" \
+        --title-id 000500001e64c0ab --rom ~/Roms/conker.z64 --sd-dir out/sd
+
+Copy `out/sd/not64` to the SD card. At start the app reads `sd:/not64/autoboot.txt` and opens that ROM.
+Games released through Nintendo's N64 Virtual Console emulator (UWUVCI injects) do not run Conker; this port does.
+
 ## Controls
 
 The menu is the same as in the other dborth emulators. In a game:
