@@ -1,16 +1,17 @@
-## not64 for Wii U (preview)
+## not64 for Wii U (preview 2)
 
 Native Wii U (Aroma) port of not64 with the dborth-style interface.
 
-What is in this build: the full menu (game browser, previews, settings, button mapping, save
-states, languages), the N64 emulator core with the interpreters, game saves, audio and controller
-plugins.
+New in this build: the GX2 3D renderer. glN64 now draws through a GX API layer on GX2, with the N64
+combiner evaluated by a pixel shader written in Latte assembly.
 
-What is not in this build yet:
+Read this before testing:
 
-* **3D rendering.** The GX2 renderer is still being integrated, so games run but draw no picture.
-  This preview is for testing the menus, ROM loading, saves and controls.
-* The code recompiler (it needs the OS codegen area, see docs/DYNAREC.md).
+* **The renderer has never run.** It compiles, links, and its logic passes host tests and a shader
+  simulation, but no frame has been drawn on a Wii U or in an emulator. Expect a black or garbled
+  picture on first contact. `docs/GX2_RENDERER.md` lists 14 open questions for hardware testing.
+* The code recompiler is off (it needs the OS codegen area, see docs/DYNAREC.md), so games run on the
+  interpreter and may be slow.
+* Menus, ROM loading, saves, states and controls are as in the first preview.
 
-Nothing here has been run on a Wii U or in an emulator, it is verified by building, linking and unit
-tests. See wiiu/README.md.
+See wiiu/README.md.

@@ -19,7 +19,7 @@ This is a work in progress. Read this section before downloading anything.
 | dborth UI: game browser, previews, settings, button mapping, save states, languages | done, compiles and links |
 | Emulator core (R4300 interpreters, RSP HLE, memory, saves, states) on wut | done, compiles and links, ROM loading and save backends have host unit tests |
 | Audio (AI to AX), controllers (GamePad, Pro, Wiimote, Classic, GameCube, USB) | written, not run on hardware |
-| 3D renderer (glN64 on GX2) | see `docs/GX2_RENDERER.md` |
+| 3D renderer (glN64 on GX2, TEV ubershader in Latte assembly) | compiles and links, 205 host checks and a shader simulation pass, **never drawn a frame**: see `docs/GX2_RENDERER.md` |
 | Code recompiler (PowerPC to PowerPC) | compiled in but **off**: it needs the OS "codegen" area, see below |
 
 **Nothing in this repository has been run on a Wii U or in an emulator.** The development machine

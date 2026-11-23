@@ -11,6 +11,13 @@
 
 #include "../gctypes.h"
 
+/* The core's recompiler heap (wiiu/source/core/wiiu_heap.c) has the libogc names too; the renderer's
+ * budgeted variant gets its own so the two never meet at link time. */
+#define __lwp_heap_init gx2gx_lwp_heap_init
+#define __lwp_heap_allocate gx2gx_lwp_heap_allocate
+#define __lwp_heap_free gx2gx_lwp_heap_free
+#define heap_cntrl gx2gx_heap_cntrl
+
 #ifdef __cplusplus
 extern "C" {
 #endif

@@ -19,7 +19,7 @@ GX2GX_CPPFILES	:=	$(GX2GX_DIR)/Gx2Core.cpp $(GX2GX_DIR)/Gx2Tev.cpp $(GX2GX_DIR)/
 GLN64_CPPFILES	:=	$(addprefix glN64_GX/,glN64.cpp Config_linux.cpp OpenGL.cpp N64.cpp RSP.cpp VI.cpp \
 			Textures.cpp FrameBuffer.cpp Combiner.cpp gDP.cpp gSP.cpp GBI.cpp DepthBuffer.cpp CRC.cpp \
 			2xSAI.cpp TEV_combiner.cpp RDP.cpp F3D.cpp F3DEX.cpp F3DEX2.cpp L3D.cpp L3DEX.cpp L3DEX2.cpp \
-			S2DEX.cpp S2DEX2.cpp F3DPD.cpp F3DDKR.cpp F3DWRUS.cpp)
+			S2DEX.cpp S2DEX2.cpp F3DPD.cpp F3DDKR.cpp F3DWRUS.cpp F3DCBFD.cpp)
 
 GX2GX_INCLUDES	:=	$(GX2GX_DIR)/compat $(GX2GX_DIR)
 
@@ -30,11 +30,5 @@ GX2GX_CFLAGS	:=	-DGLN64_GX -D__GX__ -D__LINUX__ -D__WIIU__
 # glN64_GX is old code: keep the noise of its pre-existing warnings out of the build log
 GLN64_WARN	:=	-Wno-unused -Wno-sign-compare -Wno-reorder -Wno-write-strings -Wno-narrowing
 
-# per-object flags (only when included from a makefile that defines BUILD, i.e. Makefile.wiiu), so
-# nothing leaks into the app sources
-ifdef BUILD
-GX2GX_OBJS	:=	$(addprefix $(BUILD)/,$(GX2GX_CPPFILES:.cpp=.o))
-GLN64_OBJS	:=	$(addprefix $(BUILD)/,$(GLN64_CPPFILES:.cpp=.o))
-$(GLN64_OBJS): CXXFLAGS += $(GX2GX_CFLAGS) $(addprefix -I,$(GX2GX_INCLUDES)) $(GLN64_WARN)
-$(GX2GX_OBJS): CXXFLAGS += -D__WIIU__ $(addprefix -I,$(GX2GX_INCLUDES))
-endif
+# per-object flags live in Makefile.wiiu (they have to come after CXXFLAGS is defined, and the
+# renderer's compat headers must replace the core's, not follow them)

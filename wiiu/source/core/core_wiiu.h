@@ -66,6 +66,8 @@ void n64_set_count_per_op(int count);
 /* Game audio on or off, and whether to hold the game to the console's frame rate. */
 void n64_set_audio_enabled(int on);
 void n64_set_frame_limit(int on);
+/* glN64: draw the N64 framebuffer into textures (screen effects that read it back). */
+void n64_set_framebuffer_textures(int on);
 
 /* 1 when the code recompiler can run on this system (executable memory). */
 int  n64_dynarec_available(void);
