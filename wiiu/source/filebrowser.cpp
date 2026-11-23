@@ -691,6 +691,61 @@ done:
 	return loaded;
 }
 
+/****************************************************************************
+ * AutobootLoad
+ *
+ * Packaged titles (the WUP, see tools/make-wup.sh) start straight in one game:
+ * the first line of <appPath>/autoboot.txt names a ROM relative to appPath,
+ * eg. "roms/Conker's-Bad-Fur-Day.z64". Returns 1 when the game is loaded.
+ ***************************************************************************/
+int AutobootLoad()
+{
+	char listpath[MAXPATHLEN];
+	char line[256] = { 0 };
+
+	if(appPath[0] == 0 || !FormatString(listpath, sizeof(listpath), "%s/autoboot.txt", appPath))
+		return 0;
+
+	const size_t got = LoadFile(line, listpath, 0, sizeof(line) - 1, SILENT);
+	if(got == 0)
+		return 0; // no autoboot.txt: the normal game browser
+
+	line[got] = 0;
+	line[strcspn(line, "\r\n")] = 0;
+
+	// the file is plain user data: keep it inside appPath
+	if(line[0] == 0 || line[0] == '/' || strstr(line, "..") || strchr(line, ':'))
+		return 0;
+
+	char romPath[MAXPATHLEN];
+	if(!FormatString(romPath, sizeof(romPath), "%s/%s", appPath, line))
+		return 0;
+
+	struct stat st;
+	if(stat(romPath, &st) != 0 || st.st_size < 0x1000 || (uint64_t)st.st_size > MAX_ARCHIVED_ROM_SIZE)
+		return 0;
+
+	uint8_t * rom = (uint8_t *)extmem_malloc((uint32_t)st.st_size);
+	if(!rom)
+		return 0;
+
+	const size_t size = LoadFile((char *)rom, romPath, 0, (size_t)st.st_size, SILENT);
+
+	char stem[MAXPATHLEN];
+	const char * slash = strrchr(line, '/');
+	StripExt(stem, slash ? slash + 1 : line);
+
+	const bool opened = size > 0 && N64OpenRom(rom, size, stem);
+	extmem_free(rom);
+
+	if(!opened)
+		return 0;
+
+	platform->getAudio()->getEmulatorAudio()->resetAudio();
+	AutoLoadOnGameOpen();
+	return 1;
+}
+
 void CloseSzIfOpen() {
 	if(inSz) {
 		inSz = false;

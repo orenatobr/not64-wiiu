@@ -1,16 +1,19 @@
-## not64 for Wii U (preview 4.1)
+## not64 for Wii U (preview 5): installable title (WUP)
 
-* **Majora's Mask now starts** (it showed a black screen). The graphics plugin used 4 MB of memory instead of
-  8 MB and dropped display-list data above 4 MB. This can also fix effects in other games.
-* Games see the controller, and the optional Auto resolution is there (2x on 720p, 3x on 1080p, default 2x).
+* **New: `not64-wiiu-wup.zip`**, the app as a Wii U title (`code`, `content`, `meta`, with a `cos.xml` that
+  asks the OS for a codegen area). Cemu and Loadiine read it as it is. To install it on a console, encrypt it
+  with NUSPacker and your own common key (`tools/make_wup.py`, see wiiu/README.md); the key is not shipped.
+* **Start straight in a game.** If `sd:/not64/autoboot.txt` names a ROM (for example `roms/Conker.z64`), the
+  app opens it without the game browser. `tools/make_wup.py --rom` writes that file and a copy of your ROM for
+  the SD card. No game is ever put in the title or in a release.
+* Why not a Virtual Console inject: the UWUVCI N64 list reports Conker's Bad Fur Day as not working there
+  (black screen or no picture). This port runs it on its own renderer instead.
 
 Read this before testing:
 
-* **Tested in Cemu only, never on a Wii U.** Four of five heavy PAL games run, three at full speed; Conker at
-  about half speed. See docs/ACCURACY.md.
-* Games run on the interpreter. The recompiler is off, and on a console it probably cannot run in a plain
-  homebrew app at all (it needs a codegen permission), see docs/DYNAREC.md.
-* Known picture issues: grain (partly the games' own dithering) and blocks of flat colour in some
-  Banjo-Kazooie scenes.
+* **Tested in Cemu only, never on a Wii U.** The WUP layout and `cos.xml` were written from the public format;
+  the title itself was not started in Cemu in this release, and the autoboot path was only compiled.
+* Conker runs at about half speed on the interpreter. The recompiler is still off: it has a bug in real games
+  (docs/DYNAREC.md).
 
 See wiiu/README.md.

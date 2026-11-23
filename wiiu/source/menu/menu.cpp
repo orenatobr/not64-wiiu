@@ -981,6 +981,7 @@ static void OnPreviewImageChanged(void * context, GuiImage * target, bool isDefa
 }
 
 static int BrowserLoadFileTask(void *) { return BrowserLoadFile(); }
+static int AutobootTask(void *) { return AutobootLoad(); }
 static int BrowserChangeFolderTask(void *) { return BrowserChangeFolder(); }
 
 struct ChangeInterfaceArgs
@@ -3265,6 +3266,15 @@ void MainMenu (int selection)
 			while(!IsWorkerThreadFinished()) {
 				if(!UpdateGui()) break;
 			}
+		}
+
+		// A packaged title (WUP) starts in its game without showing the browser
+		if(RunOnWorkerThread(AutobootTask)) {
+			while(!IsWorkerThreadFinished()) {
+				if(!UpdateGui()) break;
+			}
+			if(GetWorkerThreadResult())
+				currentMenu = MENU_EXIT;
 		}
 
 		#ifdef HW_RVL

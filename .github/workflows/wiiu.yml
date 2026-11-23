@@ -29,8 +29,15 @@ jobs:
       - name: Build
         run: docker run --rm -v "$PWD":/project not64-wiiu-builder make -f Makefile.wiiu -j"$(nproc)"
 
+      - name: Packer tests
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 -m unittest tools/tests/test_make_wup.py
+
       - name: Package
         run: |
+          python3 tools/make_wup.py executables/not64-wiiu.rpx dist/not64-wup/not64
+          (cd dist/not64-wup && zip -r ../../not64-wiiu-wup.zip not64)
           mkdir -p dist/not64-wiiu/wiiu/apps dist/not64-wiiu/not64/roms dist/not64-wiiu/not64/saves
           cp executables/not64-wiiu.wuhb dist/not64-wiiu/wiiu/apps/not64.wuhb
           touch dist/not64-wiiu/not64/roms/put-your-n64-roms-here dist/not64-wiiu/not64/saves/saves-go-here
@@ -42,6 +49,7 @@ jobs:
           name: not64-wiiu
           path: |
             not64-wiiu.zip
+            not64-wiiu-wup.zip
             executables/not64-wiiu.wuhb
 
   release:
@@ -69,10 +77,10 @@ jobs:
         run: |
           # The release always targets main and is marked Latest.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" not64-wiiu.zip executables/not64-wiiu.wuhb --clobber
+            gh release upload "$TAG" not64-wiiu.zip not64-wiiu-wup.zip executables/not64-wiiu.wuhb --clobber
             gh release edit "$TAG" --target main --latest
           else
-            gh release create "$TAG" not64-wiiu.zip executables/not64-wiiu.wuhb \
+            gh release create "$TAG" not64-wiiu.zip not64-wiiu-wup.zip executables/not64-wiiu.wuhb \
               --target main --latest \
               --title "not64 for Wii U $TAG" \
               --notes-file wiiu/RELEASE_NOTES.md
