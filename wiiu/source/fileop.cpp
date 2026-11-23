@@ -705,6 +705,17 @@ static bool ParseDirEntries(int batchSize)
 		CopyString(browserList[browser.numEntries+i].filename, sizeof(browserList[0].filename), entry->d_name);
 		browserList[browser.numEntries+i].isdir = isdir; // flag this as a dir
 
+		// The ROM loader sizes its buffer from this, so a file listed with length 0 is refused
+		browserList[browser.numEntries+i].length = 0;
+		if(!isdir)
+		{
+			char fullPath[MAXJOLIET + 1024];
+			struct stat fileStat;
+			snprintf(fullPath, sizeof(fullPath), "%s%s", browser.dir, entry->d_name);
+			if(stat(fullPath, &fileStat) == 0)
+				browserList[browser.numEntries+i].length = (size_t)fileStat.st_size;
+		}
+
 		char utf8Name[MAXJOLIET + 1];
 		platform->getFileSystem()->nameToDisplay(browserList[browser.numEntries+i].filename, utf8Name, sizeof(utf8Name));
 
