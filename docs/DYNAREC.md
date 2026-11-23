@@ -43,3 +43,18 @@ area is 16 MiB at 0x0223E000, core 0, writable (no execute-only switching). Hell
 homebrew) runs on it. Banjo-Kazooie and Conker boot into generated code and never submit a display list, so
 the recompiler produces wrong behaviour in real games and is off. Finding why needs a differential check
 of the interpreter against the recompiler. See `docs/ACCURACY.md`.
+
+## What the community does (research, not tested)
+
+* The codegen area belongs to titles whose `cos.xml` asks for it: its size and the one core allowed to use it
+  come from there (WiiUBrew: the area starts at 0x01800000; Virtual Console titles carry `codegen_core`
+  40000001). Most processes that are not the browser have none, so a plain Aroma `.wuhb` probably gets
+  `OSGetCodegenVirtAddrRange` = 0, and then the recompiler cannot run there at all.
+* The N64 Virtual Console titles that people inject ROMs into (UWUVCI, 64Inject) run Nintendo's own N64
+  emulator at full speed on the Espresso, which shows a PowerPC recompiler fits the hardware; they get their
+  codegen from the VC title's own permissions, not from the injected ROM. Packaging this port as such a title
+  needs base game files that cannot be shipped here.
+* Plan: treat the interpreter as the real target on a console, and speed up glN64 and the interpreter instead.
+  The recompiler stays a test switch until a title with codegen permission is available.
+
+Sources: [UWUVCI N64 inject guide](https://uwuvci-prime.github.io/UWUVCI-Resources/n64/n64compat.html), [64Inject thread](https://gbatemp.net/threads/64inject-definitive-n64-wii-u-virtual-console-injector.535520/), [WiiUBrew coreinit](https://wiiubrew.org/wiki/Coreinit.rpl), [WiiUBrew Cafe OS](https://wiiubrew.org/wiki/Cafe_OS).

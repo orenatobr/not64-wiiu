@@ -22,7 +22,7 @@
 #include "../../../main/ROM-Cache.h"
 #include "../../../gc_input/controller.h"
 #include "../../../r4300/interupt.h"
-#include "../../../r4300/r4300.h"
+extern unsigned long reg_cop0[32];
 #include "../../../gc_memory/memory.h"
 #include "../../../gc_memory/tlb.h"
 #include "../../../gc_memory/pif.h"
@@ -195,6 +195,9 @@ void continueRemovalThread(void) {}
 
 #ifdef NOT64_TEST_INPUT
 extern float VILimit;
+extern unsigned long interp_addr;
+#include "../../../r4300/r4300.h"
+#include "../../../gc_memory/memory.h"
 long long prof_total[PROF_COUNT];
 long long prof_start[PROF_COUNT];
 int prof_calls[PROF_COUNT];
@@ -213,6 +216,7 @@ void wiiu_vi_hook(void)
 		last = now;
 		if (prof_calls[PROF_FRAME] >= 30) {
 			OSReport("[n64] pacing VILimit=%.0f measured=%.1f VI/s\n", (double) VILimit, (double) Timers.vis);
+			OSReport("[n64] cpu pc=%08x count=%u status=%08x cause=%08x mi_intr=%08x sp_status=%08x\n", (unsigned) interp_addr, (unsigned) reg_cop0[9], (unsigned) reg_cop0[12], (unsigned) reg_cop0[13], (unsigned) MI_register.mi_intr_reg, (unsigned) sp_register.sp_status_reg);
 			prof_report("30 VIs");
 		}
 	}
