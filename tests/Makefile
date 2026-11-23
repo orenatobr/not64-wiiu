@@ -2,7 +2,8 @@
 # not CC: the Wii U build exports the cross compiler in CC
 HOSTCC ?= gcc
 # SAN=1 adds the address and undefined behaviour sanitizers (some CI runners cannot start them)
-SANFLAGS := $(if $(SAN),-fsanitize=address,undefined -fno-omit-frame-pointer,)
+SAN_ON := -fsanitize=address,undefined -fno-omit-frame-pointer
+SANFLAGS := $(if $(SAN),$(SAN_ON))
 CFLAGS = -O1 -g -Wall -Wextra -Wno-unused-parameter $(SANFLAGS)
 # the original core is old C: build the files from it that the tests use leniently
 CORE_CFLAGS = -std=gnu17 -fgnu89-inline -w $(SANFLAGS) -O1 -g -DHW_RVL -D__WIIU__ \
