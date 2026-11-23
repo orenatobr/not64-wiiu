@@ -281,6 +281,8 @@ void WutEmulatorVideo::drawQuad()
 
 	// The frame texture on a target: plain textured quad, or the output filter when it has work to do
 	auto drawGame = [&](OutputTarget target) {
+		// The picture is opaque: whatever alpha the renderer left in it must not blend it away
+		GX2SetColorControl(GX2_LOGIC_OP_COPY, 0x00, GX2_DISABLE, GX2_ENABLE);
 		if ((sharp || scanlines > 0.0f) && outputFilterPass(target, texture, EmuSettings.videoBilinearFilter, sharp))
 			return;
 		drawPass(target);

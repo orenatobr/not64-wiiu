@@ -179,8 +179,12 @@ CALL_FS control-flow word pair.
 
 ## Verification status
 
-Honest account of what was done, all on a macOS host with the Docker images; **nothing was run on a Wii U
-or in an emulator, and no frame was ever rendered**.
+Honest account of what was done. The unit tests and the shader simulation ran on a macOS host with the
+Docker images. **The renderer has since run in Cemu 2.6 (macOS, Apple Silicon, under Rosetta), never on a
+Wii U.** In Cemu, `tests/gx2gx/rpx` shows the expected textured two-stage triangle and a full-screen
+textured quad, and the app renders a homebrew demo and the Banjo-Kazooie intro and first level with correct
+colours and textures. Known artefacts there: grainy textures and a few stray green rectangles (not yet
+investigated). Cemu is not a console: hardware behaviour can still differ.
 
 * Compiled: all five `gx2gx` sources, and all 29 `glN64_GX` translation units listed in `gx2gx.mk`, with the
   devkitPPC/wut toolchain of `not64-wiiu-builder` (`-Wall -Wextra` clean for the gx2gx sources; glN64's
@@ -203,8 +207,8 @@ or in an emulator, and no frame was ever rendered**.
   with dborth's compiler output (above) is the only check of the produced encodings against real
   hardware-targeted output; the ALU/TEX instruction words themselves have not been compared with a
   disassembler or a GPU.
-* Not verified: any GX2 call sequence at runtime, instruction scheduling rules of the Latte ALU that the
-  assembler does not check (see open questions), visual correctness of anything.
+* Not verified: anything on a real GPU, instruction scheduling rules of the Latte ALU that the assembler does
+  not check (see open questions), the grain and rectangle artefacts, other games.
 
 ## Open questions for hardware testing
 

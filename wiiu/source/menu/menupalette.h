@@ -36,19 +36,19 @@ struct MenuPalette {
 	PixelColor mark;
 };
 
-//!Snes9x GX: blue chrome, gray secondary
+//!not64 for Wii U: N64 green chrome, gray secondary (every text pair is at least 4.5:1)
 static inline MenuPalette MenuPaletteDefault()
 {
 	MenuPalette p;
-	p.chromeLight    = MenuRGBA(30, 88, 140);
-	p.chromeDark     = MenuRGBA(16, 58, 100);
-	p.chromeEdge     = MenuRGBA(84, 126, 166);
+	p.chromeLight    = MenuRGBA(18, 122, 60);
+	p.chromeDark     = MenuRGBA(8, 78, 36);
+	p.chromeEdge     = MenuRGBA(92, 172, 122);
 	p.backgroundTop    = MenuRGBA(230, 230, 230);
 	p.backgroundBottom = MenuRGBA(200, 200, 200);
-	p.accent         = MenuRGBA(30, 100, 164);
-	p.accentDark     = MenuRGBA(20, 70, 120);
-	p.accentTint     = MenuRGBA(230, 240, 251);
-	p.glow           = MenuRGBA(200, 224, 252, 170);
+	p.accent         = MenuRGBA(16, 118, 56);
+	p.accentDark     = MenuRGBA(10, 84, 40);
+	p.accentTint     = MenuRGBA(228, 246, 234);
+	p.glow           = MenuRGBA(190, 244, 210, 170);
 	p.surface        = MenuRGBA(250, 250, 250);
 	p.surfaceRaised  = MenuRGBA(255, 255, 255);
 	p.outline        = MenuRGBA(220, 220, 220);

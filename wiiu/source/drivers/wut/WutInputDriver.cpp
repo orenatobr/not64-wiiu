@@ -4,6 +4,7 @@
  * WutInputDriver.cpp
  ***************************************************************************/
 #include "WutInputDriver.h"
+#include "TestInputScript.h"
 #include "../Platform.h"
 #include "../InputController.h"
 #include "../InputData.h"
@@ -219,6 +220,21 @@ void WutInputDriver::update() {
 			VPADStatus vpadStatus;
 			VPADReadError vpadError;
 			VPADRead(VPAD_CHAN_0, &vpadStatus, 1, &vpadError);
+#ifdef NOT64_TEST_INPUT
+			{
+				static TestInputScript script;
+				static uint32_t lastHold = 0;
+				static const int sdCandidates[] = { DEVICE_SD };
+				script.load(FindFirstMountedPath(platform->getFileSystem(), sdCandidates, 1));
+				if (script.active() && vpadError == VPAD_READ_SUCCESS) {
+					uint32_t hold = script.nextHold();
+					vpadStatus.hold = hold;
+					vpadStatus.trigger = hold & ~lastHold;
+					vpadStatus.release = lastHold & ~hold;
+					lastHold = hold;
+				}
+			}
+#endif
 
 			if (vpadError == VPAD_READ_SUCCESS) {
 				padData.hw_connected[INPUT_HW_DRC] = true;

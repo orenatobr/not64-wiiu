@@ -18,13 +18,14 @@ This is a work in progress. Read this section before downloading anything.
 | Build, packaging (`.wuhb`), CI, release | done, builds in CI |
 | dborth UI: game browser, previews, settings, button mapping, save states, languages | done, compiles and links |
 | Emulator core (R4300 interpreters, RSP HLE, memory, saves, states) on wut | done, compiles and links, ROM loading and save backends have host unit tests |
-| Audio (AI to AX), controllers (GamePad, Pro, Wiimote, Classic, GameCube, USB) | written, not run on hardware |
-| 3D renderer (glN64 on GX2, TEV ubershader in Latte assembly) | compiles and links, 205 host checks and a shader simulation pass, **never drawn a frame**: see `docs/GX2_RENDERER.md` |
+| Audio (AI to AX), controllers (GamePad, Pro, Wiimote, Classic, GameCube, USB) | written, not run on hardware (audio device is not exercised in Cemu either) |
+| 3D renderer (glN64 on GX2, TEV ubershader in Latte assembly) | **runs in Cemu**: a homebrew demo and the Banjo-Kazooie intro and first level draw with correct colours and textures. Known artefacts: grainy textures and a few stray green rectangles. See `docs/GX2_RENDERER.md` |
 | Code recompiler (PowerPC to PowerPC) | compiled in but **off**: it needs the OS "codegen" area, see below |
 
-**Nothing in this repository has been run on a Wii U or in an emulator.** The development machine
-had neither, so everything is verified by cross compiling in the official toolchain image, linking,
-and unit tests of the pure logic. Expect bugs on first contact with hardware and please report them.
+**Verified in Cemu 2.6 (macOS, Apple Silicon, under Rosetta), never on a Wii U.** The menu, ROM browser, game
+start and rendering work there at 60 FPS in the menu and 16 to 20 FPS in 3D games (the interpreter is slow
+and the recompiler is off). Real hardware can differ: Cemu is not a Wii U. How to repeat the Cemu runs is in
+`docs/TESTING_CEMU.md`.
 
 ### About the recompiler
 

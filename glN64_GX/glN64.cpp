@@ -253,6 +253,12 @@ BOOL CALLBACK FindToolBarProc( HWND hWnd, LPARAM lParam )
 
 EXPORT BOOL CALL InitiateGFX (GFX_INFO Gfx_Info)
 {
+#ifdef __WIIU__
+	// There is no XFB on Wii U: this installs the dummy tokens that make GX_CopyDisp() present the frame
+	VI_GX_init();
+	// The Wii app sets the EFB window; here the renderer always draws 640x480 and the video driver scales it
+	gfx_set_window(0, 0, 640, 480);
+#endif
 #ifndef __LINUX__
 	hWnd = Gfx_Info.hWnd;
 	hStatusBar = Gfx_Info.hStatusBar;

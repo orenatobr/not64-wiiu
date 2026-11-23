@@ -96,6 +96,10 @@ CFLAGS		:=	-g -O3 $(WARNFLAGS) $(MACHDEP) $(INCLUDE) $(FREETYPE_CFLAGS) \
 			-DNOT64GX -D__WIIU__ -D__WUT__ -DHAVE_STDINT_H -DZLIB \
 			-D_SZ_ONE_DIRECTORY -D_LZMA_IN_CB -D_LZMA_OUT_READ \
 			-ffunction-sections -fdata-sections
+# make TEST_INPUT=1: read scripted GamePad input from sd:/not64/test_input.txt (emulator smoke tests, never in releases)
+ifdef TEST_INPUT
+CFLAGS		+=	-DNOT64_TEST_INPUT
+endif
 CXXFLAGS	:=	$(CFLAGS) -std=c++17
 # The core is classic C written for GCC 4: keep the GNU dialect, and let the
 # few things modern GCC rejects stay warnings.
