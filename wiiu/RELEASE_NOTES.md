@@ -1,17 +1,22 @@
-## not64 for Wii U (preview 2)
+## not64 for Wii U (preview 3)
 
-Native Wii U (Aroma) port of not64 with the dborth-style interface.
+Native Wii U (Aroma) port of not64 with the dborth-style interface, now in N64 green.
 
-New in this build: the GX2 3D renderer. glN64 now draws through a GX API layer on GX2, with the N64
-combiner evaluated by a pixel shader written in Latte assembly.
+New in this build:
+
+* **Games draw.** The GX2 renderer is wired into the app and has now run: a homebrew demo and the
+  Banjo-Kazooie intro and first level render in Cemu with correct colours and textures.
+* ROMs larger than the first few bytes now load (the file browser did not report file sizes, so every ROM was
+  refused with "Unsupported file size!").
+* New N64 green theme and an N64 console picture instead of the SNES one.
 
 Read this before testing:
 
-* **The renderer has never run.** It compiles, links, and its logic passes host tests and a shader
-  simulation, but no frame has been drawn on a Wii U or in an emulator. Expect a black or garbled
-  picture on first contact. `docs/GX2_RENDERER.md` lists 14 open questions for hardware testing.
-* The code recompiler is off (it needs the OS codegen area, see docs/DYNAREC.md), so games run on the
-  interpreter and may be slow.
-* Menus, ROM loading, saves, states and controls are as in the first preview.
+* **Tested in Cemu only, never on a Wii U.** Cemu is not a console, so real hardware can differ.
+* Known rendering artefacts: grainy textures and a few stray green rectangles in 3D games.
+* Games run on the interpreter (the code recompiler is off, it needs the OS codegen area, see
+  docs/DYNAREC.md), about 16 to 20 FPS in 3D in Cemu on an Apple Silicon Mac. Expect better on real hardware
+  but do not count on full speed.
+* No game audio check in Cemu yet.
 
-See wiiu/README.md.
+See wiiu/README.md and docs/TESTING_CEMU.md.
