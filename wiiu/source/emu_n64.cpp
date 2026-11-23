@@ -51,6 +51,36 @@ static bool PrepareFolders(char * saveDir, size_t size)
 }
 
 /****************************************************************************
+ * The renderer
+ *
+ * GX2 keeps its context state and command buffer per core, so the renderer has to be
+ * created by the thread that draws with it: the one that runs the game. The ROM is
+ * opened on a loader thread, which is why this is not done in N64OpenRom(). Its
+ * resolution follows the setting, so it is rebuilt when that changed.
+ ***************************************************************************/
+static bool EnsureRenderer()
+{
+	static int rendererScale = 0;
+	const int wantedScale = EmuSettings.renderScale + 1;
+
+	if(rendererScale == wantedScale)
+		return true;
+
+	if(rendererScale != 0)
+		gx2gx::shutdown();
+
+	if(!gx2gx::init(wantedScale))
+	{
+		rendererScale = 0;
+		ErrorPrompt("The graphics renderer could not start.");
+		return false;
+	}
+
+	rendererScale = wantedScale;
+	return true;
+}
+
+/****************************************************************************
  * The game
  ***************************************************************************/
 bool N64OpenRom(const uint8_t * data, size_t size, const char * fileStem)
@@ -62,23 +92,6 @@ bool N64OpenRom(const uint8_t * data, size_t size, const char * fileStem)
 	}
 
 	N64CloseRom();
-
-	// the renderer must exist before the core opens its graphics plugin; its
-	// resolution follows the setting, so it is rebuilt when that changed
-	static int rendererScale = 0;
-	const int wantedScale = EmuSettings.renderScale + 1;
-	if(rendererScale != wantedScale)
-	{
-		if(rendererScale != 0)
-			gx2gx::shutdown();
-		if(!gx2gx::init(wantedScale))
-		{
-			rendererScale = 0;
-			ErrorPrompt("The graphics renderer could not start.");
-			return false;
-		}
-		rendererScale = wantedScale;
-	}
 
 	N64RomInfo info;
 	const int result = n64_load_rom(data, (unsigned int)size, &info);
@@ -165,7 +178,7 @@ static void OnFrame()
 
 void N64Run()
 {
-	if(!romLoaded)
+	if(!romLoaded || !EnsureRenderer())
 		return;
 
 	n64_set_frame_callback(OnFrame);
