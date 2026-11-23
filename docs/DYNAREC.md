@@ -58,3 +58,5 @@ of the interpreter against the recompiler. See `docs/ACCURACY.md`.
   The recompiler stays a test switch until a title with codegen permission is available.
 
 Sources: [UWUVCI N64 inject guide](https://uwuvci-prime.github.io/UWUVCI-Resources/n64/n64compat.html), [64Inject thread](https://gbatemp.net/threads/64inject-definitive-n64-wii-u-virtual-console-injector.535520/), [WiiUBrew coreinit](https://wiiubrew.org/wiki/Coreinit.rpl), [WiiUBrew Cafe OS](https://wiiubrew.org/wiki/Cafe_OS).
+
+The title's `cos.xml` asks for a 16 MiB codegen area on core 0. The recompiler is off in the binary, so the area is only queried (`wiiu_jit_query`) and never written; if the OS refuses it the app runs the same. Not yet checked on a console.

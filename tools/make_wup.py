@@ -172,6 +172,15 @@ def build_title(rpx: Path, out: Path, name: str, publisher: str, title_id: str, 
     logger.info("title written to %s", out)
 
 
+ROM_MAGICS = {b"\x80\x37\x12\x40": "z64", b"\x37\x80\x40\x12": "v64", b"\x40\x12\x37\x80": "n64"}
+
+
+def rom_format(rom: Path) -> str | None:
+    """Returns ``z64``, ``v64`` or ``n64`` from the ROM's first four bytes, or None when unknown."""
+    with rom.open("rb") as fh:
+        return ROM_MAGICS.get(fh.read(4))
+
+
 def write_sd_files(sd_dir: Path, rom: Path | None, autoboot_rom: str | None) -> None:
     """Writes ``not64/autoboot.txt`` (and your ROM, when given) for the SD card."""
     base = sd_dir / "not64"
@@ -179,6 +188,11 @@ def write_sd_files(sd_dir: Path, rom: Path | None, autoboot_rom: str | None) -> 
     if rom is not None:
         if not rom.is_file():
             raise FileNotFoundError(rom)
+        fmt = rom_format(rom)
+        if fmt is None:
+            logger.warning("%s does not look like an N64 ROM (unknown header)", rom.name)
+        else:
+            logger.info("ROM byte order: %s", fmt)
         safe = re.sub(r"[^A-Za-z0-9._-]", "-", rom.name)
         shutil.copyfile(rom, base / "roms" / safe)
         autoboot_rom = autoboot_rom or f"roms/{safe}"

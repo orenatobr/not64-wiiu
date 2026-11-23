@@ -1,5 +1,11 @@
 ## not64 for Wii U (preview 5): installable title (WUP)
 
+**What this is.** "Recompiling" Conker's Bad Fur Day for the Wii U was done as an emulator in a title, not as a
+Virtual Console inject and not as a static recompilation. The UWUVCI N64 list reports Conker as not working
+through Nintendo's own VC emulator, and there is no decompilation to recompile statically. The zips hold the
+title in the **Cemu/Loadiine layout, not an encrypted install package**: encrypting needs your own Wii U common
+key, which cannot be shipped. One command from zip to installable WUP is in wiiu/README.md.
+
 * **New: `not64-wiiu-wup.zip`**, the app as a Wii U title (`code`, `content`, `meta`, with a `cos.xml` that
   asks the OS for a codegen area). Cemu and Loadiine read it as it is. To install it on a console, encrypt it
   with NUSPacker and your own common key (`tools/make_wup.py`, see wiiu/README.md); the key is not shipped.
