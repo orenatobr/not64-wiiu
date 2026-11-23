@@ -5,6 +5,7 @@
  *
  * WutEmulatorVideo.cpp
  ***************************************************************************/
+#include "../../core/prof.h"
 #include <math.h>
 #include <string.h>
 #include <algorithm>
@@ -411,6 +412,8 @@ extern "C" void Wiiu_PresentEmuFrame(GX2Texture* colour, int width, int height)
 	if(!video)
 		return;
 
+	PROF_BEGIN(PROF_PRESENT);
 	video->setFrame(colour, width, height);
 	video->presentFrame(width, height);
+	PROF_END(PROF_PRESENT);
 }

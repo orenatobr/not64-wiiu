@@ -5,8 +5,10 @@
  * the per-frame hook to the app. Everything the C++ side may call is declared
  * in core_wiiu.h.
  */
-#include <malloc.h>
 #include <stdio.h>
+#include "prof.h"
+#include "wiiu_jit.h"
+#include <malloc.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -191,8 +193,30 @@ static void rsp_info_init(void)
 void pauseRemovalThread(void) {}
 void continueRemovalThread(void) {}
 
+#ifdef NOT64_TEST_INPUT
+extern float VILimit;
+long long prof_total[PROF_COUNT];
+long long prof_start[PROF_COUNT];
+int prof_calls[PROF_COUNT];
+#endif
+
 void wiiu_vi_hook(void)
 {
+#ifdef NOT64_TEST_INPUT
+	{
+		static long long last = 0;
+		long long now = (long long) OSGetSystemTime();
+		if (last) {
+			prof_total[PROF_FRAME] += now - last;
+			prof_calls[PROF_FRAME]++;
+		}
+		last = now;
+		if (prof_calls[PROF_FRAME] >= 30) {
+			OSReport("[n64] pacing VILimit=%.0f measured=%.1f VI/s\n", (double) VILimit, (double) Timers.vis);
+			prof_report("30 VIs");
+		}
+	}
+#endif
 	if (frame_callback)
 		frame_callback();
 }
@@ -209,6 +233,13 @@ int n64_core_init(void)
 {
 	if (core_ready)
 		return N64_OK;
+#ifdef NOT64_TEST_INPUT
+	{
+		WiiuJitInfo ji;
+		wiiu_jit_query(&ji);
+		OSReport("[n64] codegen area=%p size=%u core=%d mode=%d\n", ji.area, (unsigned) ji.size, ji.core, ji.mode);
+	}
+#endif
 
 	if (wiiu_mem2_init() != 0)
 		return N64_ERR_MEMORY;

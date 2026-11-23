@@ -19,6 +19,9 @@
 #endif
 
 #ifdef __GX__
+#ifdef __WIIU__
+#include "../wiiu/source/core/prof.h"
+#endif
 #include "GFXPlugin.h"
 #include <gccore.h>
 #include <stdio.h>
@@ -331,7 +334,13 @@ EXPORT void CALL ProcessDList(void)
 	DEBUG_print(txtbuffer,DBG_SDGECKOPRINT);
 #endif // GLN64_SDLOG
 #endif // __GX__
+#ifdef NOT64_TEST_INPUT
+	PROF_BEGIN(PROF_DLIST);
+#endif
 	RSP_ProcessDList();
+#ifdef NOT64_TEST_INPUT
+	PROF_END(PROF_DLIST);
+#endif
 #endif
 
 #ifdef DEBUGON

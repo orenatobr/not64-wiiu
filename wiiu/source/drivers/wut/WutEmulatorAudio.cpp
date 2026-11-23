@@ -6,12 +6,19 @@
  * WutEmulatorAudio.cpp
  ***************************************************************************/
 #include <coreinit/cache.h>
+#ifdef NOT64_TEST_INPUT
+#include <coreinit/debug.h>
+#endif
 #include <sndcore2/core.h>
 #include <string.h>
 #include <algorithm>
 
 #include "WutEmulatorAudio.h"
 #include "../../core/audio_wiiu.h"
+
+#ifdef NOT64_TEST_INPUT
+static unsigned audioDrops = 0; // blocks thrown away because the queue was full
+#endif
 
 namespace
 {
@@ -293,7 +300,13 @@ void WutEmulatorAudio::push(const int16_t * stereoBE, uint32_t frames, uint32_t 
 
 	// Too much queued already: the oldest audio is no use, drop the new block
 	if(queuedFrames + frames > MAX_QUEUED_FRAMES)
+	{
+#ifdef NOT64_TEST_INPUT
+		audioDrops++;
+		OSReport("[n64] audio block dropped, queue full (%u + %u)\n", (unsigned) queuedFrames, (unsigned) frames);
+#endif
 		return;
+	}
 
 	for(uint32_t i = 0; i < frames; i++)
 	{
@@ -314,6 +327,18 @@ void WutEmulatorAudio::push(const int16_t * stereoBE, uint32_t frames, uint32_t 
 	}
 
 	queuedFrames += frames;
+
+#ifdef NOT64_TEST_INPUT
+	{
+		static unsigned pushes = 0, pushedFrames = 0;
+		const unsigned drops = audioDrops;
+		pushes++;
+		pushedFrames += frames;
+		if(pushes % 100 == 0)
+			OSReport("[n64] audio pushes=%u frames=%u drops=%u queued=%u rate=%u speed=%.2f corr=%.3f started=%d\n",
+				pushes, pushedFrames, drops, (unsigned) queuedFrames, (unsigned) sourceRate, speed, correction, (int) started);
+	}
+#endif
 
 	if(!started && queuedFrames >= START_FRAMES)
 	{

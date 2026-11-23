@@ -5,6 +5,9 @@
  ***************************************************************************/
 #include "WutInputDriver.h"
 #include "TestInputScript.h"
+#ifdef NOT64_TEST_INPUT
+extern "C" const char * Wiiu_TestDumpDir = nullptr; // read by the renderer test hooks
+#endif
 #include "../Platform.h"
 #include "../InputController.h"
 #include "../InputData.h"
@@ -225,7 +228,8 @@ void WutInputDriver::update() {
 				static TestInputScript script;
 				static uint32_t lastHold = 0;
 				static const int sdCandidates[] = { DEVICE_SD };
-				script.load(FindFirstMountedPath(platform->getFileSystem(), sdCandidates, 1));
+				Wiiu_TestDumpDir = FindFirstMountedPath(platform->getFileSystem(), sdCandidates, 1);
+				script.load(Wiiu_TestDumpDir);
 				if (script.active() && vpadError == VPAD_READ_SUCCESS) {
 					uint32_t hold = script.nextHold();
 					vpadStatus.hold = hold;

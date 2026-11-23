@@ -5,6 +5,7 @@
  *
  * Threading: like libogc's GX, the API must be called from one thread.
  */
+#include "../core/prof.h"
 #include "Gx2Backend.h"
 #include "Gx2Tev.h"
 #include "Gx2Tex.h"
@@ -652,7 +653,9 @@ void GX_End(void)
 	dc.ps = ps;
 	dc.tex[0] = resolveTexture(0);
 	dc.tex[1] = resolveTexture(1);
+	PROF_BEGIN(PROF_DRAWS);
 	S.be->draw(dc);
+	PROF_END(PROF_DRAWS);
 	S.verts.clear();
 }
 
