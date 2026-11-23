@@ -56,8 +56,11 @@ CORE_C_FILES	:=	main/timers.c main/md5.c main/rom_gc.c main/savestates_gc.c \
 			rsp_hle/audio.c rsp_hle/cicx105.c rsp_hle/hle.c rsp_hle/hvqm.c rsp_hle/jpeg.c \
 			rsp_hle/memory.c rsp_hle/mp3.c rsp_hle/musyx.c rsp_hle/re2.c rsp_hle/plugin.c
 
+# The GX2 renderer for glN64_GX (docs/GX2_RENDERER.md)
+include wiiu/gx2gx.mk
+
 CFILES		:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.c)) $(CORE_C_FILES)
-CPPFILES	:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.cpp))
+CPPFILES	:=	$(foreach d,$(APP_DIRS),$(wildcard $(d)/*.cpp)) $(GX2GX_CPPFILES) $(GLN64_CPPFILES)
 CORE_OBJS	:=	$(addprefix $(BUILD)/,$(CORE_C_FILES:.c=.o))
 GLUE_OBJS	:=	$(addprefix $(BUILD)/,$(patsubst %.c,%.o,$(wildcard $(CORE_GLUE_DIR)/*.c)))
 
@@ -105,6 +108,15 @@ ASFLAGS		:=	-g $(MACHDEP)
 LDFLAGS		:=	-g $(MACHDEP) $(RPXSPECS) -Wl,-Map,$(BUILD)/$(TARGET).map -Wl,--gc-sections
 
 LIBS		:=	-lsmb2 -liconv -lwut -lmocha -ldvm -lpng -lmxml -lz -lvorbisidec -logg $(FREETYPE_LIBS)
+
+# glN64 and the renderer see the GX compat headers, not the core's libogc shims
+GX2GX_OBJS	:=	$(addprefix $(BUILD)/,$(GX2GX_CPPFILES:.cpp=.o))
+GLN64_OBJS	:=	$(addprefix $(BUILD)/,$(GLN64_CPPFILES:.cpp=.o))
+$(GX2GX_OBJS) $(GLN64_OBJS): CXXFLAGS := $(filter-out -Iwiiu/source/core/compat,$(CXXFLAGS)) $(addprefix -I,$(GX2GX_INCLUDES))
+$(GX2GX_OBJS): CXXFLAGS += -D__WIIU__
+$(GLN64_OBJS): CXXFLAGS += $(GX2GX_CFLAGS) $(GLN64_WARN) -fcommon
+# glN64.cpp owns the definitions of the tables that the other glN64 files declare extern
+$(BUILD)/glN64_GX/glN64.o: CXXFLAGS += -DMAINDEF
 
 #---------------------------------------------------------------------------------
 .PHONY: all clean test core

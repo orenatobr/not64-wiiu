@@ -72,7 +72,7 @@ void VI_UpdateSize()
 
 	u32 width = _SHIFTR( *REG.VI_WIDTH, 0, 12 );
 
-	VI.width = hEnd == hStart ? width : lrint(abs(hEnd - hStart) * xScale / 4) * 4;
+	VI.width = hEnd == hStart ? width : lrint(abs((int)(hEnd - hStart)) * xScale / 4) * 4;
 
 	if (VI.width > width) VI.width = width;
 
@@ -82,7 +82,7 @@ void VI_UpdateSize()
 	vStart  = vStart / 2 - 1;
 	vEnd    = vEnd   / 2 + 1;
 
-	VI.height = lrint(abs(vEnd - vStart) * yScale / 4) * 4;
+	VI.height = lrint(abs((int)(vEnd - vStart)) * yScale / 4) * 4;
 
 	if (VI.width == 0) VI.width = 320;
 	if (VI.height == 0) VI.height = 240;
@@ -218,11 +218,23 @@ void VI_GX_init() {
 	VI.EFBcleared = true;
 	VI.copy_fb = false;
 	VI.which_fb = 1;
+#ifdef __WIIU__
+	VI_GX_setFB(NULL, NULL);	// installs the dummy XFB tokens (see VI_GX_setFB)
+#endif
 }
 
 void VI_GX_setFB(unsigned int* fb1, unsigned int* fb2){
+#ifdef __WIIU__
+	// There is no XFB on Wii U: GX_CopyDisp() hands the frame to the app when it gets a non-NULL
+	// destination, so make sure that is the case whatever the app passes (it may pass NULL).
+	static unsigned int dummyXfb[2][8];
+	(void) fb1; (void) fb2;
+	VI.xfb[0] = dummyXfb[0];
+	VI.xfb[1] = dummyXfb[1];
+#else
 	VI.xfb[0] = fb1;
 	VI.xfb[1] = fb2;
+#endif
 }
 
 unsigned int* VI_GX_getScreenPointer(){ return VI.xfb[VI.which_fb]; }
@@ -243,7 +255,9 @@ void VI_GX_showFPS(){
 	sprintf(caption, "%.1f VI/s (%.1fx), %.1f DL/s",Timers.vis,Timers.vis/VILimit,Timers.fps);
 	
 	GXColor fontColor = {150,255,150,255};
-#ifndef MENU_V2
+#ifdef __WIIU__
+	(void) fontColor;	// the Wii U app draws its own overlay; no GX font renderer here
+#elif !defined(MENU_V2)
 	write_font_init_GX(fontColor);
 	if(showFPSonScreen)
 		write_font(15,35,caption, 1.0);
@@ -263,7 +277,7 @@ void VI_GX_showLoadIcon()
 	if (!VI.enableLoadIcon) return;
 	VI.enableLoadIcon = false;
 
-#ifndef MENU_V2
+#if !defined(MENU_V2) && !defined(__WIIU__)
 	GXColor GXcol1 = {0,128,255,255};
 	GXColor GXcol2 = {0,64,128,255};
 	float xbar[3] = {425,425,550};
@@ -322,7 +336,7 @@ void VI_GX_showLoadIcon()
 	GX_Position2f32(xbar[0], ybar[1]);
 	GX_Color4u8(GXcol1.r, GXcol1.g, GXcol1.b, GXcol1.a);
 	GX_End();
-#else //!MENU_V2
+#elif !defined(__WIIU__) //MENU_V2 icon: needs the embedded menu texture, which the Wii U app does not have
 	float x = 530;
 	float y = 30;
 	float width = 80;
@@ -395,7 +409,9 @@ void VI_GX_showDEBUG()
 	GXColor fontColor = {150, 255, 150, 255};
 //	VI_GX_showStats();
 	DEBUG_update();
-#ifndef MENU_V2
+#ifdef __WIIU__
+	(void) fontColor; (void) i;	// the Wii U app draws its own overlay; no GX font renderer here
+#elif !defined(MENU_V2)
 	write_font_init_GX(fontColor);
 	if(printToScreen)
 		for (i=0;i<DEBUG_TEXT_HEIGHT;i++)
@@ -479,7 +495,7 @@ void VI_GX_renderCpuFramebuffer()
 	if(!GXtexCache)
 	{
 		GXtexCache = (heap_cntrl*)malloc(sizeof(heap_cntrl));
-#ifdef HW_RVL
+#if defined(HW_RVL) && !defined(__WIIU__)
 		__lwp_heap_init(GXtexCache, TEXCACHE_LO,GX_TEXTURE_CACHE_SIZE, 32);
 #else //HW_RVL
 		__lwp_heap_init(GXtexCache, memalign(32,GX_TEXTURE_CACHE_SIZE),GX_TEXTURE_CACHE_SIZE, 32);
@@ -510,6 +526,31 @@ void VI_GX_renderCpuFramebuffer()
 	int rowpitch = stride * 4 - (FBtexW * 2);
 	int rows = FBtexH >> 2;
 
+#ifdef __WIIU__
+	{
+		// Portable version of the asm below: no write-gather pipe on Wii U, so the retiled
+		// 16 bit texels are written straight into FBtex (same GX 4x4 tile order, RGB5A1 -> RGB5A3
+		// by rotating right one bit and forcing the opaque bit; the asm does it two texels at a time).
+		u16* out = FBtex;
+		const u16* r1 = (const u16*)src1 + 4;	// the asm pre-increments by 8 bytes
+		const u16* r2 = (const u16*)src2 + 4;
+		const u16* r3 = (const u16*)src3 + 4;
+		const u16* r4 = (const u16*)src4 + 4;
+		const int rowskip = rowpitch / 2;
+		for (; rows > 0; rows--)
+		{
+			for (int tiles = FBtexW >> 2; tiles > 0; tiles--)
+			{
+				for (int t = 0; t < 4; t++) *out++ = (u16)(0x8000 | (r1[t] >> 1));
+				for (int t = 0; t < 4; t++) *out++ = (u16)(0x8000 | (r2[t] >> 1));
+				for (int t = 0; t < 4; t++) *out++ = (u16)(0x8000 | (r3[t] >> 1));
+				for (int t = 0; t < 4; t++) *out++ = (u16)(0x8000 | (r4[t] >> 1));
+				r1 += 4; r2 += 4; r3 += 4; r4 += 4;
+			}
+			r1 += rowskip; r2 += rowskip; r3 += rowskip; r4 += rowskip;
+		}
+	}
+#else
 	while (rows--) {
 		int tiles = FBtexW >> 2;
 
@@ -561,6 +602,8 @@ void VI_GX_renderCpuFramebuffer()
 		src3 += rowpitch;
 		src4 += rowpitch;
 	}
+
+#endif // __WIIU__
 
 	GX_RestoreWriteGatherPipe();
 

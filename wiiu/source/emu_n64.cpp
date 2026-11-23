@@ -17,6 +17,7 @@
 #include "drivers/Platform.h"
 #include "drivers/safestr.h"
 #include "libgui/Gui.h"
+#include "gx2gx/Gx2Gx.h"
 
 N64RomInfo n64Rom;
 char n64RomName[512];
@@ -61,6 +62,23 @@ bool N64OpenRom(const uint8_t * data, size_t size, const char * fileStem)
 	}
 
 	N64CloseRom();
+
+	// the renderer must exist before the core opens its graphics plugin; its
+	// resolution follows the setting, so it is rebuilt when that changed
+	static int rendererScale = 0;
+	const int wantedScale = EmuSettings.renderScale + 1;
+	if(rendererScale != wantedScale)
+	{
+		if(rendererScale != 0)
+			gx2gx::shutdown();
+		if(!gx2gx::init(wantedScale))
+		{
+			rendererScale = 0;
+			ErrorPrompt("The graphics renderer could not start.");
+			return false;
+		}
+		rendererScale = wantedScale;
+	}
 
 	N64RomInfo info;
 	const int result = n64_load_rom(data, (unsigned int)size, &info);
@@ -118,6 +136,7 @@ void N64ApplySettings()
 	n64_set_count_per_op(EmuSettings.countPerOp);
 	n64_set_audio_enabled(!EmuSettings.muteAudio);
 	n64_set_frame_limit(EmuSettings.limitFrameRate);
+	n64_set_framebuffer_textures(EmuSettings.frameFramebufferTextures);
 	SetControllers();
 }
 

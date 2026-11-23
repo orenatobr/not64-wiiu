@@ -60,12 +60,16 @@ char padType[4];
 char padAssign[4];
 char pakMode[4];
 char loadButtonSlot;
-char showFPSonScreen;
-char printToScreen;
+/* glN64 (VI.cpp) defines showFPSonScreen and printToScreen */
 char printToSD;
-char glN64_useFrameBufferTextures;
-char glN64_use2xSaiTextures;
-char renderCpuFramebuffer;
+/* glN64 defines glN64_useFrameBufferTextures, glN64_use2xSaiTextures and renderCpuFramebuffer */
+extern char glN64_useFrameBufferTextures;
+extern char glN64_use2xSaiTextures;
+
+/* The core also calls these function pointers, which the graphics plugin may set. */
+void (*fBRead)(DWORD addr) = NULL;
+void (*fBWrite)(DWORD addr, DWORD size) = NULL;
+void (*fBGetFrameBufferInfo)(void *p) = NULL;
 
 BOOL hasLoadedROM = FALSE;
 int autoLoadedSave = NATIVESAVEDEVICE_NONE;
@@ -380,6 +384,11 @@ void n64_set_count_per_op(int count)
 	if (count < COUNT_PER_OP_1 || count > COUNT_PER_OP_3)
 		count = COUNT_PER_OP_1;
 	count_per_op = (unsigned long)count;
+}
+
+void n64_set_framebuffer_textures(int on)
+{
+	glN64_useFrameBufferTextures = on ? 1 : 0;
 }
 
 void n64_set_audio_enabled(int on)

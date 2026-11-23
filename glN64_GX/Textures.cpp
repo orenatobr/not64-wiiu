@@ -549,7 +549,7 @@ void TextureCache_Init()
 	if(!GXtexCache)
 	{
 		GXtexCache = (heap_cntrl*)malloc(sizeof(heap_cntrl));
-#ifdef HW_RVL
+#if defined(HW_RVL) && !defined(__WIIU__)
 		__lwp_heap_init(GXtexCache, TEXCACHE_LO,GX_TEXTURE_CACHE_SIZE, 32);
 #else //HW_RVL
 		__lwp_heap_init(GXtexCache, memalign(32,GX_TEXTURE_CACHE_SIZE),GX_TEXTURE_CACHE_SIZE, 32);

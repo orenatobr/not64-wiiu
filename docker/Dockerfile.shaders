@@ -1,0 +1,33 @@
+# Build-time image that provides decaf-emu's latte-assembler (GPL-3.0).
+# The tool only turns Latte assembly text into GFD files; nothing from
+# decaf-emu is linked into or shipped with the emulator. The generated
+# shader headers are committed, so normal CI builds never need this image.
+#
+#   docker build -f docker/Dockerfile.shaders -t not64-shaders docker
+#   tools/build-shaders.sh
+FROM ubuntu:22.04
+
+# decaf-emu/decaf-emu, pinned commit
+ARG DECAF_REF=e6c528a20a41c34e0f9eb91dd3da40f119db2dee
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential cmake git ca-certificates python3 \
+ && rm -rf /var/lib/apt/lists/*
+
+# Submodule commits are fixed by DECAF_REF; only the ones the assembler
+# needs are fetched (vcpkg, qtads, imgui, libbinrec, ... are skipped).
+RUN git init /decaf && cd /decaf \
+ && git remote add origin https://github.com/decaf-emu/decaf-emu.git \
+ && git fetch --depth 1 origin "${DECAF_REF}" \
+ && git checkout FETCH_HEAD \
+ && git submodule update --init --depth 1 \
+      libraries/cnl libraries/cpp-peglib libraries/excmd libraries/fmt \
+      libraries/glslang libraries/gsl-lite libraries/spdlog
+
+COPY shaders/CMakeLists.txt /wrapper/CMakeLists.txt
+RUN cmake -S /wrapper -B /build -DCMAKE_BUILD_TYPE=Release -DDECAF_SRC=/decaf \
+ && cmake --build /build --target latte-assembler -j"$(nproc)" \
+ && install -m 0755 /build/out/latte-assembler /usr/local/bin/latte-assembler
+
+WORKDIR /work
+ENTRYPOINT ["latte-assembler"]

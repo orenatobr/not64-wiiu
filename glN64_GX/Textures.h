@@ -19,7 +19,7 @@
 #include "gl.h" 
 #include "glext.h"
 #undef __WIN32__
-#ifdef HW_RVL
+#if defined(HW_RVL) && !defined(__WIIU__)
 #include "../gc_memory/MEM2.h"
 #endif //HW_RVL
 #endif // __GX__
@@ -85,7 +85,9 @@ struct TextureCache
 extern TextureCache cache;
 
 #ifdef __GX__
-# ifdef HW_RVL
+# if defined(__WIIU__)
+# define GX_TEXTURE_CACHE_SIZE (16*1024*1024) //budget of the GX2 shim's texture heap (see docs/GX2_RENDERER.md)
+# elif defined(HW_RVL)
 # define GX_TEXTURE_CACHE_SIZE TEXCACHE_SIZE //8MB for Wii
 # else //HW_RVL
 # define GX_TEXTURE_CACHE_SIZE (2*1024*1024)
