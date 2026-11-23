@@ -30,3 +30,12 @@ full-screen textured quad on the TV. Run it the same way.
 Lessons from the first Cemu runs: GX2 keeps its context and command buffer per core, so the renderer must be
 created on the thread that draws; a Wii U app has no frame buffer in RAM, so the dummy buffers and the EFB
 window the Wii app sets must be set by the glue; a game picture is opaque and must not be blended.
+
+## Measuring and dumping (test builds)
+
+* The profiler prints, every 30 VIs, the VI rate against the region's target (50 or 60) and the time spent in
+  the display lists, draws, present and texture upload; the audio plugin prints the queue level and drops.
+  Turn on Debug, Logging, "Coreinit Logging (OSReport/OSConsole)" and read Cemu's `log.txt`.
+* The first 60 decoded textures are written as PPM files to `sdcard/not64/zdump/` (create the folder first; the
+  name sorts last so it does not move the entries the scripted input counts).
+* `make DYNAREC_TEST=1` offers the recompiler (off by default, see `docs/DYNAREC.md`).

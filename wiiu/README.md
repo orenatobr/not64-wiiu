@@ -19,12 +19,12 @@ This is a work in progress. Read this section before downloading anything.
 | dborth UI: game browser, previews, settings, button mapping, save states, languages | done, compiles and links |
 | Emulator core (R4300 interpreters, RSP HLE, memory, saves, states) on wut | done, compiles and links, ROM loading and save backends have host unit tests |
 | Audio (AI to AX), controllers (GamePad, Pro, Wiimote, Classic, GameCube, USB) | written, not run on hardware (audio device is not exercised in Cemu either) |
-| 3D renderer (glN64 on GX2, TEV ubershader in Latte assembly) | **runs in Cemu**: a homebrew demo and the Banjo-Kazooie intro and first level draw with correct colours and textures. Known artefacts: grainy textures and a few stray green rectangles. See `docs/GX2_RENDERER.md` |
+| 3D renderer (glN64 on GX2, TEV ubershader in Latte assembly) | **runs in Cemu**: a homebrew demo and five heavy games draw with correct colours and textures (Majora's Mask stays black). Known artefacts: grain and a few stray green rectangles. See `docs/GX2_RENDERER.md` and `docs/ACCURACY.md` |
 | Code recompiler (PowerPC to PowerPC) | compiled in but **off**: it needs the OS "codegen" area, see below |
 
 **Verified in Cemu 2.6 (macOS, Apple Silicon, under Rosetta), never on a Wii U.** The menu, ROM browser, game
-start and rendering work there at 60 FPS in the menu and 16 to 20 FPS in 3D games (the interpreter is slow
-and the recompiler is off). Real hardware can differ: Cemu is not a Wii U. How to repeat the Cemu runs is in
+start and rendering work there at 60 FPS in the menu; in games three of five heavy PAL titles reach full speed and
+Conker about half (the interpreter is slow and the recompiler is off). Real hardware can differ: Cemu is not a Wii U. How to repeat the Cemu runs is in
 `docs/TESTING_CEMU.md`.
 
 ### About the recompiler

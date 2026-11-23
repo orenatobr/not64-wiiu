@@ -1,22 +1,21 @@
-## not64 for Wii U (preview 3)
-
-Native Wii U (Aroma) port of not64 with the dborth-style interface, now in N64 green.
+## not64 for Wii U (preview 4)
 
 New in this build:
 
-* **Games draw.** The GX2 renderer is wired into the app and has now run: a homebrew demo and the
-  Banjo-Kazooie intro and first level render in Cemu with correct colours and textures.
-* ROMs larger than the first few bytes now load (the file browser did not report file sizes, so every ROM was
-  refused with "Unsupported file size!").
-* New N64 green theme and an N64 console picture instead of the SNES one.
+* **Games see the controller.** Before, they reported "NO CONTROLLER". Only ports with a connected controller
+  answer now.
+* New **Auto** internal resolution (Settings, Video): 2x on a 720p TV, 3x on 1080p. The default stays 2x.
+* Measured against five heavy PAL games in Cemu (Banjo-Tooie, Conker, Jet Force Gemini, Pokemon Stadium 2,
+  Majora's Mask): four render, three run at full speed (50 VI/s), Conker at 20 to 25, and **Majora's Mask
+  shows a black screen**. Details in docs/ACCURACY.md.
 
 Read this before testing:
 
-* **Tested in Cemu only, never on a Wii U.** Cemu is not a console, so real hardware can differ.
-* Known rendering artefacts: grainy textures and a few stray green rectangles in 3D games.
-* Games run on the interpreter (the code recompiler is off, it needs the OS codegen area, see
-  docs/DYNAREC.md), about 16 to 20 FPS in 3D in Cemu on an Apple Silicon Mac. Expect better on real hardware
-  but do not count on full speed.
-* No game audio check in Cemu yet.
+* **Tested in Cemu only, never on a Wii U.** Speeds and audio are from Cemu, audio was checked by the numbers
+  and not by ear.
+* Games run on the interpreter; the code recompiler is off (it still misbehaves in real games, see
+  docs/DYNAREC.md). Heavy games such as Conker are slow.
+* Known picture issues: grain (partly the games' own dithering, no video-interface filter yet) and a few stray
+  green rectangles.
 
-See wiiu/README.md and docs/TESTING_CEMU.md.
+See wiiu/README.md.
