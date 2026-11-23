@@ -71,7 +71,9 @@ precomp_instr *PC;
 #include "ppc/Recompile.h"
 #ifdef HW_RVL
 #include "../gc_memory/MEM2.h"
+#ifndef __WIIU__
 PowerPC_block **const blocks = (PowerPC_block*)(BLOCKS_LO);
+#endif
 #else
 #ifndef ARAM_BLOCKCACHE
 PowerPC_block *blocks[0x100000];

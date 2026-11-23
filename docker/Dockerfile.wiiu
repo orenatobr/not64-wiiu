@@ -1,0 +1,34 @@
+# Build environment for the native Wii U (wut/Aroma) port.
+#
+# Same base image and helper libraries that dborth's Wii U ports use
+# (snes9xgx, fceugx, vbagx). Every dependency is pinned to a commit so a
+# rebuild is reproducible and an upstream push cannot change our binaries.
+FROM ghcr.io/extremscorner/libogc2:latest
+
+# dborth/libmocha (fork of wiiu-env/libmocha, LGPL-3.0)
+ARG LIBMOCHA_REF=1a7d6034fcfd40468fcda5908ae32d019c7e7224
+# dborth/libdvm (fork of extremscorner/libdvm)
+ARG LIBDVM_REF=0b1430ab32fe18617db93c9b9d3045282c67c531
+# dborth/libsmb2 (fork of sahlberg/libsmb2)
+ARG LIBSMB2_REF=30b3f7b852f530082ad5675c65e7e0401d6db2d9
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gettext \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN git clone https://github.com/dborth/libmocha.git /tmp/libmocha \
+ && cd /tmp/libmocha && git checkout "${LIBMOCHA_REF}" \
+ && make install \
+ && rm -rf /tmp/libmocha
+
+RUN git clone --recurse-submodules --shallow-submodules https://github.com/dborth/libdvm.git /tmp/libdvm \
+ && cd /tmp/libdvm && git checkout "${LIBDVM_REF}" \
+ && make install \
+ && rm -rf /tmp/libdvm
+
+RUN git clone https://github.com/dborth/libsmb2.git /tmp/libsmb2 \
+ && cd /tmp/libsmb2 && git checkout "${LIBSMB2_REF}" \
+ && make -f Makefile.platform wiiu_install \
+ && rm -rf /tmp/libsmb2
+
+WORKDIR /project

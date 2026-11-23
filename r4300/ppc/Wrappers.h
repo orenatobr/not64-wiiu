@@ -31,9 +31,19 @@
 
 #define DYNAOFF_LR     12
 
+#ifdef __WIIU__
+/* The wut linker script has no small data area and the OS does not set r13.
+ * Generated code instead addresses its state relative to r13 = &reg, which
+ * dyna_run() loads on entry. Every symbol used this way lives in .sbss next to
+ * reg, so the 16-bit displacement reaches it. wiiu_dynarec_check_sda() proves
+ * that at start-up and turns the recompiler off if it does not hold. */
+#define SDAREL(symbol) ((short)((char*)(&symbol) - (char*)&reg))
+#define DYNA_SDA_BASE ((void*)&reg)
+#else
 #define SDAREL(symbol) ({ short offset; \
 	__asm__("li %0,%1@sdarel" : "=r" (offset) : "U" (&symbol)); \
 	offset; })
+#endif
 
 extern long long int reg[34] __attribute__((section(".sbss")));
 extern unsigned long reg_cop0[32] __attribute__((section(".sbss")));

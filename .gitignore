@@ -1,0 +1,8 @@
+build_wiiu/
+executables/
+dist/
+*.o
+*.elf
+*.rpx
+*.map
+graphify-out/

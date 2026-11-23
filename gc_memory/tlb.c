@@ -43,8 +43,10 @@
 
 #ifndef USE_TLB_CACHE
 #include "MEM2.h"
+#ifndef __WIIU__
 unsigned long *const tlb_LUT_r = (unsigned long*)(TLBLUT_LO);
 unsigned long *const tlb_LUT_w = (unsigned long*)(TLBLUT_LO+0x400000);
+#endif
 #endif
 
 #ifndef USE_TLB_CACHE

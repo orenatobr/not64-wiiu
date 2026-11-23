@@ -59,6 +59,9 @@ void InitTimer(void) {
 
 extern int stop;
 extern unsigned int usleep(unsigned int us);
+#ifdef __WIIU__
+void wiiu_vi_hook(void);
+#endif
 
 void new_frame(void) {
 	DWORD CurrentFPSTime;
@@ -107,6 +110,12 @@ void new_vi(void) {
 		return;
 	}
 
+#ifdef __WIIU__
+	/* once per emulated frame: poll the controllers, handle HOME / power requests,
+	 * and let the app stop the core (sets stop) */
+	wiiu_vi_hook();
+	if (stop) return;
+#endif
 	start_section(IDLE_SECTION);
 //	if ( (!Config.showVIS) && (!Config.limitFps) ) return;
 	VI_Counter++;
