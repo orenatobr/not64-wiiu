@@ -1,11 +1,16 @@
 /*
- * Link test for the GX2 renderer: init, one frame with a textured triangle through two TEV
- * stages, shutdown. This only proves that everything compiles and links for Wii U; it has
- * never been run (no hardware or emulator available when it was written).
+ * Smoke test for the GX2 renderer: init, then 1800 frames (30 seconds), alternating every 5 seconds with the CPU-framebuffer quad, of a textured triangle through two TEV
+ * stages, each shown on the TV by scanning out the renderer's colour buffer. Run it in Cemu or on
+ * a console: the picture is a dark blue field with a lit triangle, and anything else is a bug.
  */
 #include <string.h>
 
+#include <gx2/display.h>
+#include <gx2/event.h>
+#include <gx2/surface.h>
+#include <gx2/swap.h>
 #include <gx2/state.h>
+#include <gx2/mem.h>
 #include <whb/gfx.h>
 #include <whb/log.h>
 #include <whb/log_console.h>
@@ -15,12 +20,22 @@
 #include "../../../wiiu/source/gx2gx/compat/gccore.h"
 
 static int sPresents;
+static GX2ColorBuffer sShow;
 
-/* the app's video driver provides this in the real build */
+/* the app's video driver provides this in the real build; here the frame is scanned out directly */
 extern "C" void Wiiu_PresentEmuFrame(GX2Texture *colour, int width, int height)
 {
-	(void) colour;
-	WHBLogPrintf("present %dx%d", width, height);
+	(void) width;
+	(void) height;
+	memset(&sShow, 0, sizeof(sShow));
+	sShow.surface = colour->surface;
+	sShow.viewNumSlices = 1;
+	GX2InitColorBufferRegs(&sShow);
+	GX2CopyColorBufferToScanBuffer(&sShow, GX2_SCAN_TARGET_TV);
+	GX2CopyColorBufferToScanBuffer(&sShow, GX2_SCAN_TARGET_DRC);
+	GX2SwapScanBuffers();
+	GX2Flush();
+	GX2WaitForVsync();
 	sPresents++;
 }
 
@@ -98,6 +113,62 @@ static void drawFrame()
 	GX_DrawDone();
 }
 
+/* the state glN64_GX's "CPU framebuffer" path (VI_GX_renderCpuFramebuffer) sets: no colour channel,
+ * one REPLACE stage and a full-screen quad textured with the N64 framebuffer */
+static void drawCpuFramebufferFrame()
+{
+	GX_SetCopyClear((GXColor){ 200, 0, 200, 255 }, GX_MAX_Z24);
+	GX_SetColorUpdate(GX_ENABLE);
+	GX_SetAlphaUpdate(GX_ENABLE);
+	GX_SetZMode(GX_ENABLE, GX_ALWAYS, GX_TRUE);
+	GX_CopyDisp(NULL, GX_TRUE);
+	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
+
+	GXTexObj tex;
+	GX_InitTexObj(&tex, sTexture, 8, 8, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+	GX_LoadTexObj(&tex, GX_TEXMAP0);
+
+	GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
+	GX_SetAlphaCompare(GX_ALWAYS, 0, GX_AOP_AND, GX_ALWAYS, 0);
+	GX_SetZMode(GX_DISABLE, GX_ALWAYS, GX_FALSE);
+	GX_SetCullMode(GX_CULL_NONE);
+	GX_SetFog(GX_FOG_NONE, 0.1, 1.0, 0.0, 1.0, (GXColor){ 0, 0, 0, 255 });
+
+	Mtx44 proj;
+	guOrtho(proj, 0, 480, 0, 640, 0.0f, 1.0f);
+	GX_LoadProjectionMtx(proj, GX_ORTHOGRAPHIC);
+	Mtx pos;
+	guMtxIdentity(pos);
+	GX_LoadPosMtxImm(pos, GX_PNMTX0);
+	GX_SetViewport(0.0f, 0.0f, 640.0f, 480.0f, 0.0f, 1.0f);
+	GX_SetScissor(0, 0, 640, 480);
+
+	GX_ClearVtxDesc();
+	GX_SetVtxDesc(GX_VA_PNMTXIDX, GX_PNMTX0);
+	GX_SetVtxDesc(GX_VA_TEX0MTXIDX, GX_TEXMTX0);
+	GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+	GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_F32, 0);
+	GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
+
+	GX_SetNumChans(0);
+	GX_SetNumTexGens(1);
+	GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+	GX_SetNumTevStages(1);
+	GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP0, GX_COLOR0A0);
+	GX_SetTevOp(GX_TEVSTAGE0, GX_REPLACE);
+
+	GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+	GX_Position2f32(0.0f, 0.0f);     GX_TexCoord2f32(0.0f, 0.0f);
+	GX_Position2f32(640.0f, 0.0f);   GX_TexCoord2f32(1.0f, 0.0f);
+	GX_Position2f32(640.0f, 480.0f); GX_TexCoord2f32(1.0f, 1.0f);
+	GX_Position2f32(0.0f, 480.0f);   GX_TexCoord2f32(0.0f, 1.0f);
+	GX_End();
+
+	GX_CopyDisp(sTexture, GX_FALSE);
+	GX_DrawDone();
+}
+
 int main(int, char **)
 {
 	WHBProcInit();
@@ -105,8 +176,9 @@ int main(int, char **)
 	WHBGfxInit();
 
 	buildTexture();
-	if (gx2gx::init(1)) {
-		drawFrame();
+	if (gx2gx::init(2)) {
+		for (int i = 0; i < 1800 && WHBProcIsRunning(); i++)
+			((i / 300) & 1) ? drawCpuFramebufferFrame() : drawFrame();
 		gx2gx::shutdown();
 		WHBLogPrintf("gx2gx test done, presents=%d", sPresents);
 	} else {
