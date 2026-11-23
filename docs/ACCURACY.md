@@ -17,12 +17,13 @@ How to repeat the runs: `docs/TESTING_CEMU.md`. The measurements come from the t
 | Conker's Bad Fur Day | intro and game select, controller recognised | 20 to 25 (about 1500 draw calls per frame) | 22 kHz, played slower with the game |
 | Jet Force Gemini | title and intro | 50 | 22 kHz, no dropped blocks |
 | Pokemon Stadium 2 | title screen, expansion pak detected | 50 | 32 kHz, no dropped blocks |
-| Zelda: Majora's Mask | **black screen**: the game runs (VIs are counted) but never submits a display list | not applicable | not applicable |
+| Zelda: Majora's Mask | intro renders (fixed, see below); about 36 VI/s in the first scene | 36 | not measured |
 
 Audio was checked by the numbers (blocks pushed, queue level, sample rate, drops), not by ear.
 
 ## Fixed because of these runs
 
+* **Majora's Mask booted to a black screen.** glN64 sized RDRAM at 4 MB (the Expansion Pak flag is only passed to the C core) and rejected every display-list segment base above it. Majora keeps display list data above 4 MB, so segment 1 stayed 0, the list jumped into low memory and read MIPS code as commands forever. Found by watching where the game thread was stuck in Cemu's thread list and tracing the commands. Now 8 MB.
 * Games saw **no controller** ("NO CONTROLLER" in Conker). The core's PIF looks for a native GameCube or Wii
   pad unless the port is marked `RawData`; the Wii U port has no such pad. Ports now hand every command to
   the input plugin, and only ports with a connected controller answer (before, all four did).
@@ -40,7 +41,7 @@ Audio was checked by the numbers (blocks pushed, queue level, sample rate, drops
   purpose; a console's video interface and a TV blur that away, an emulator drawing at 960 lines does not. The
   decoded textures were dumped and compared by eye with what is on screen: the decoding is right. An optional
   video-interface filter would soften it; it is not written.
-* A few **stray green rectangles** in Banjo-Kazooie's intro. Cause not found.
+* **Blocks of flat colour** in Banjo-Kazooie (green rectangles in the intro, a fixed grid of coloured squares in game). Not found yet; see "Not done yet".
 * Conker draws about 1500 primitives per frame, each a separate GX2 draw. Submitting them is cheap (about
   5 ms per frame); the glN64 vertex and combiner work in front of them is not.
 
@@ -61,7 +62,7 @@ being **interpreted**: the recompiler is off.
 
 ## Not done yet
 
-* Majora's Mask boot. Not investigated.
+* The solid-colour blocks (about 56 px squares in a fixed grid) that sit in the middle of the screen in some Banjo-Kazooie scenes. They are not stale textures (checked), not partial `FillRect` calls and not textured rectangles; the draw that makes them was not found.
 * The recompiler (the big speed win), and fast memory access in generated code.
 * A video-interface filter (dither, anti-alias, blur) for a closer look to a console picture.
 * Everything on real hardware: audio by ear, 1080p output, controllers other than the GamePad.

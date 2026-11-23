@@ -1,21 +1,16 @@
-## not64 for Wii U (preview 4)
+## not64 for Wii U (preview 4.1)
 
-New in this build:
-
-* **Games see the controller.** Before, they reported "NO CONTROLLER". Only ports with a connected controller
-  answer now.
-* New **Auto** internal resolution (Settings, Video): 2x on a 720p TV, 3x on 1080p. The default stays 2x.
-* Measured against five heavy PAL games in Cemu (Banjo-Tooie, Conker, Jet Force Gemini, Pokemon Stadium 2,
-  Majora's Mask): four render, three run at full speed (50 VI/s), Conker at 20 to 25, and **Majora's Mask
-  shows a black screen**. Details in docs/ACCURACY.md.
+* **Majora's Mask now starts** (it showed a black screen). The graphics plugin used 4 MB of memory instead of
+  8 MB and dropped display-list data above 4 MB. This can also fix effects in other games.
+* Games see the controller, and the optional Auto resolution is there (2x on 720p, 3x on 1080p, default 2x).
 
 Read this before testing:
 
-* **Tested in Cemu only, never on a Wii U.** Speeds and audio are from Cemu, audio was checked by the numbers
-  and not by ear.
-* Games run on the interpreter; the code recompiler is off (it still misbehaves in real games, see
-  docs/DYNAREC.md). Heavy games such as Conker are slow.
-* Known picture issues: grain (partly the games' own dithering, no video-interface filter yet) and a few stray
-  green rectangles.
+* **Tested in Cemu only, never on a Wii U.** Four of five heavy PAL games run, three at full speed; Conker at
+  about half speed. See docs/ACCURACY.md.
+* Games run on the interpreter. The recompiler is off, and on a console it probably cannot run in a plain
+  homebrew app at all (it needs a codegen permission), see docs/DYNAREC.md.
+* Known picture issues: grain (partly the games' own dithering) and blocks of flat colour in some
+  Banjo-Kazooie scenes.
 
 See wiiu/README.md.

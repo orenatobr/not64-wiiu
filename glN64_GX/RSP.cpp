@@ -375,7 +375,7 @@ void RSP_Init()
 	}
 #else // !__LINUX__
 # ifdef __GX__
-#  ifdef USE_EXPANSION
+#  if defined(USE_EXPANSION) || defined(__WIIU__) // the Wii U core always has the 8 MB of the Expansion Pak (the flag is not passed to this file)
 	RDRAMSize = 1024 * 1024 * 8;
 #  else
 	RDRAMSize = 1024 * 1024 * 4;
