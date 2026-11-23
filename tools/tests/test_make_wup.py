@@ -42,6 +42,13 @@ class MakeWupTest(unittest.TestCase):
         self.assertEqual((sd / "not64" / "autoboot.txt").read_text().strip(), "roms/My-Game--E-.z64")
         self.assertTrue((sd / "not64" / "roms" / "My-Game--E-.z64").is_file())
 
+    def test_rom_format(self) -> None:
+        rom = self.tmp / "a.z64"
+        rom.write_bytes(b"\x80\x37\x12\x40" + b"\0" * 8)
+        self.assertEqual(make_wup.rom_format(rom), "z64")
+        rom.write_bytes(b"nope" + b"\0" * 8)
+        self.assertIsNone(make_wup.rom_format(rom))
+
 
 if __name__ == "__main__":
     unittest.main()

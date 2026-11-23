@@ -60,7 +60,7 @@ The release has `not64-wiiu-wup.zip`: the same app laid out as a Wii U title. Bu
 `python3 tools/make_wup.py executables/not64-wiiu.rpx out/not64` (needs Pillow). The `cos.xml` asks for a
 16 MiB codegen area, which is what the recompiler needs on a console (see `docs/DYNAREC.md`).
 
-To install on a console, encrypt it with NUSPacker and your own Wii U common key, then install with WUP
+To install on a console (the zip is the plain layout, not an install package), encrypt it with NUSPacker and your own Wii U common key, then install with WUP
 Installer GX2:
 
     python3 tools/make_wup.py executables/not64-wiiu.rpx out/not64 \
@@ -70,6 +70,11 @@ A title for one game (nothing from the game goes into the title; the ROM stays o
 
     python3 tools/make_wup.py executables/not64-wiiu.rpx out/conker --name "Conker's Bad Fur Day" \
         --title-id 000500001e64c0ab --rom ~/Roms/conker.z64 --sd-dir out/sd
+
+The output (the ROM stays outside the title):
+
+    out/conker/code/{not64.rpx,app.xml,cos.xml}   out/conker/meta/{meta.xml,*.tga}   out/conker/content/
+    out/sd/not64/autoboot.txt                      out/sd/not64/roms/<your ROM>
 
 Copy `out/sd/not64` to the SD card. At start the app reads `sd:/not64/autoboot.txt` and opens that ROM.
 Games released through Nintendo's N64 Virtual Console emulator (UWUVCI injects) do not run Conker; this port does.
