@@ -128,3 +128,9 @@ ROM in RAM (no streaming), save callbacks on stdio, the audio and controller plu
 
 See `wiiu/THIRD_PARTY.md`. not64: Extrems and the Wii64 team. Interface and Wii U drivers: Daryl
 Borth. This port: orenatobr. Licensed under the GNU GPL v2.
+
+## PAL games (50 Hz)
+
+The emulator reads the region from the ROM header. A PAL cartridge such as Conker's Bad Fur Day (Europe) is paced
+at 50 VI/s (the Cemu log shows `VILimit=50`), so autoboot needs nothing extra. Speed is the open problem: Conker
+reaches about 20 to 25 VI/s on the interpreter, in Cemu only.

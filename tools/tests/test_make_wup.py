@@ -42,6 +42,11 @@ class MakeWupTest(unittest.TestCase):
         self.assertEqual((sd / "not64" / "autoboot.txt").read_text().strip(), "roms/My-Game--E-.z64")
         self.assertTrue((sd / "not64" / "roms" / "My-Game--E-.z64").is_file())
 
+    def test_missing_key_is_a_clear_exit(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            make_wup.encrypt(self.tmp, self.tmp / "o", self.tmp / "none.jar", self.tmp / "none.key")
+        self.assertIn("common key", str(ctx.exception))
+
     def test_rom_format(self) -> None:
         rom = self.tmp / "a.z64"
         rom.write_bytes(b"\x80\x37\x12\x40" + b"\0" * 8)
