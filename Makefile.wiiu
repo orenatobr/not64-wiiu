@@ -110,6 +110,13 @@ CORE_CFLAGS	:=	-g -O3 $(MACHDEP) $(INCLUDE) -std=gnu17 -fgnu89-inline -ffunction
 			-Wno-error=implicit-function-declaration -Wno-error=implicit-int
 ASFLAGS		:=	-g $(MACHDEP)
 LDFLAGS		:=	-g $(MACHDEP) $(RPXSPECS) -Wl,-Map,$(BUILD)/$(TARGET).map -Wl,--gc-sections
+ifdef TEST_INPUT
+CORE_CFLAGS	+=	-DNOT64_TEST_INPUT
+endif
+# make DYNAREC_TEST=1: offer the recompiler (it still has execution bugs, see docs/DYNAREC.md)
+ifdef DYNAREC_TEST
+CORE_CFLAGS	+=	-DRECOMPILER_USES_CODEGEN_AREA=1
+endif
 
 LIBS		:=	-lsmb2 -liconv -lwut -lmocha -ldvm -lpng -lmxml -lz -lvorbisidec -logg $(FREETYPE_LIBS)
 

@@ -6,6 +6,11 @@
  * of a frame (ensureFrame) selects it; present() ends the frame and the application must select
  * its own state again (WHBGfxBeginRender* does) before drawing, see Gx2Gx.h.
  */
+#ifdef NOT64_TEST_INPUT
+extern "C" const char *Wiiu_TestDumpDir;
+#endif
+#include "../core/prof.h"
+#include <stdio.h>
 #include <malloc.h>
 #include <string.h>
 #include <vector>
@@ -673,8 +678,25 @@ void Backend2::present(int widthPx, int heightPx)
 
 TexHandle Backend2::createTexture(int w, int h, const uint8_t *rgba)
 {
+#ifdef NOT64_TEST_INPUT
+	{
+		/* test builds: dump the first decoded textures as PPM files so decoding can be checked by eye */
+		static int dumped = 0;
+		if (Wiiu_TestDumpDir && rgba && w > 8 && h > 8 && dumped < 60) {
+			char path[300];
+			snprintf(path, sizeof(path), "%snot64/zdump/tex%03d_%dx%d.ppm", Wiiu_TestDumpDir, dumped++, w, h);
+			if (FILE *f = fopen(path, "wb")) {
+				fprintf(f, "P6\n%d %d\n255\n", w, h);
+				for (int k = 0; k < w * h; k++)
+					fwrite(rgba + k * 4, 1, 3, f);
+				fclose(f);
+			}
+		}
+	}
+#endif
 	if (w <= 0 || h <= 0 || !rgba)
 		return 0;
+	PROF_BEGIN(PROF_UPLOAD);
 	GpuTex *t = new GpuTex();
 	memset(t, 0, sizeof(*t));
 	GX2InitTexture(&t->tex, (uint32_t) w, (uint32_t) h, 1, 0, GX2_SURFACE_FORMAT_UNORM_R8_G8_B8_A8, GX2_SURFACE_DIM_TEXTURE_2D, GX2_TILE_MODE_LINEAR_ALIGNED);
@@ -689,6 +711,7 @@ TexHandle Backend2::createTexture(int w, int h, const uint8_t *rgba)
 		memcpy(d + (size_t) y * stride, rgba + (size_t) y * w * 4, (size_t) w * 4);
 	GX2InitTextureRegs(&t->tex);   /* the register block holds the image address */
 	GX2Invalidate(GX2_INVALIDATE_MODE_CPU_TEXTURE, t->tex.surface.image, t->tex.surface.imageSize);
+	PROF_END(PROF_UPLOAD);
 	texCount++;
 	return t;
 }

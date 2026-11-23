@@ -935,3 +935,14 @@ void WutGlyphRenderer::drawFeature(int16_t screenX, int16_t screenY, uint16_t wi
 
 	driver->queueDraw(cmd);
 }
+
+/****************************************************************************
+ * Wiiu_TvHeight
+ *
+ * Lets the emulator glue pick an internal resolution that matches the TV.
+ ***************************************************************************/
+extern "C" int Wiiu_TvHeight(void)
+{
+	WutVideoDriver * video = platform ? static_cast<WutVideoDriver *>(platform->getVideo()) : nullptr;
+	return video ? (int) video->getTargetHeight(OutputTarget::TV) : 720;
+}

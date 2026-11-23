@@ -2211,6 +2211,7 @@ static int MenuSettingsVideo()
 				case RENDER_SCALE_1X: sprintf (options.value[1], "Native (640x480)"); break;
 				case RENDER_SCALE_2X: sprintf (options.value[1], "2x (1280x960)"); break;
 				case RENDER_SCALE_3X: sprintf (options.value[1], "3x (1920x1440)"); break;
+				case RENDER_SCALE_AUTO: sprintf (options.value[1], "Auto (720p: 2x, 1080p: 3x)"); break;
 			}
 
 			if (EmuSettings.videoUpscalingFilter == UPSCALE_SHARP_BILINEAR)

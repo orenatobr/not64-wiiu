@@ -33,7 +33,9 @@ void wiiu_input_configure_port(int port, int present, int pak)
 	if (port < 0 || port > 3 || !control_info.Controls)
 		return;
 	control_info.Controls[port].Present = present ? TRUE : FALSE;
-	control_info.Controls[port].RawData = FALSE;
+	/* RawData makes the PIF hand every command to ReadController(): without it the core looks for a
+	 * native GameCube or Wii pad (padType), which does not exist here, and the game sees no controller. */
+	control_info.Controls[port].RawData = present ? TRUE : FALSE;
 	control_info.Controls[port].Plugin = pak;
 }
 

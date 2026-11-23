@@ -58,10 +58,20 @@ static bool PrepareFolders(char * saveDir, size_t size)
  * opened on a loader thread, which is why this is not done in N64OpenRom(). Its
  * resolution follows the setting, so it is rebuilt when that changed.
  ***************************************************************************/
+// height in pixels of the picture the TV gets (720 or 1080), see WutVideoDriver.cpp
+extern "C" int Wiiu_TvHeight(void);
+
 static bool EnsureRenderer()
 {
 	static int rendererScale = 0;
-	const int wantedScale = EmuSettings.renderScale + 1;
+	int wantedScale = EmuSettings.renderScale + 1;
+	if(EmuSettings.renderScale == RENDER_SCALE_AUTO)
+	{
+		// The N64 picture is 4:3 and fills the TV's height: render at least as many lines as the TV shows
+		// (720p: 960x720 on screen, so 2x = 960 lines; 1080p: 1440x1080, so 3x = 1440 lines)
+		const int tvHeight = Wiiu_TvHeight();
+		wantedScale = tvHeight > 720 ? 3 : (tvHeight > 480 ? 2 : 1);
+	}
 
 	if(rendererScale == wantedScale)
 		return true;

@@ -35,3 +35,11 @@ derivative, so the translation target is the native instruction set and the exis
 `wiiu_jit_query()` reports the codegen area the OS lends (address, size, core). It is not shown in
 the UI yet. If the OS lends no area, the recompiler cannot run there and the interpreters are what
 you have.
+
+## What was tried in Cemu
+
+`make DYNAREC_TEST=1` offers the recompiler and puts its code cache in the codegen area. In Cemu 2.6 that
+area is 16 MiB at 0x0223E000, core 0, writable (no execute-only switching). Hello World (a CPU-only
+homebrew) runs on it. Banjo-Kazooie and Conker boot into generated code and never submit a display list, so
+the recompiler produces wrong behaviour in real games and is off. Finding why needs a differential check
+of the interpreter against the recompiler. See `docs/ACCURACY.md`.

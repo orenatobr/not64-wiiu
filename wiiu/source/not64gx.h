@@ -87,6 +87,7 @@ enum {
 	RENDER_SCALE_1X = 0,
 	RENDER_SCALE_2X,
 	RENDER_SCALE_3X,
+	RENDER_SCALE_AUTO,	// follows the TV: 720p renders at 2x, 1080p at 3x
 	RENDER_SCALE_LENGTH
 };
 
