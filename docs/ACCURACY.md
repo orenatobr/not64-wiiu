@@ -37,11 +37,20 @@ Audio was checked by the numbers (blocks pushed, queue level, sample rate, drops
 
 ## Graphics: what looks wrong and why
 
-* **Grain** on textures and gradients. Rare's textures (Banjo, Conker, Jet Force Gemini) are dithered on
-  purpose; a console's video interface and a TV blur that away, an emulator drawing at 960 lines does not. The
-  decoded textures were dumped and compared by eye with what is on screen: the decoding is right. An optional
-  video-interface filter would soften it; it is not written.
-* **Blocks of flat colour** in Banjo-Kazooie (green rectangles in the intro, a fixed grid of coloured squares in game). Not found yet; see "Not done yet".
+* **Fixed in 0.6.0: texture coordinates and colours were not scaled.** The GX build converted integers to
+  floats with Gekko paired-single loads (`psq_l`) that depend on registers (GQR2, GQR3) set by the Wii GX
+  initialisation. A Wii U title never runs it, so a `G_TEXTURE` scale of 0x8000 became 32768.0 instead of 0.5
+  and 8 bit colours stayed in 0..255 instead of 0..1. Every textured triangle then sampled far outside its
+  texture. With clamp that gave the **blocks of flat colour** seen in Banjo-Kazooie and Banjo-Tooie (a fixed
+  grid of coloured squares), and with wrap it gave high-frequency noise. Found by logging the inputs of the
+  texture coordinate formula in a Banjo-Tooie intro frame (`scales=32768.0`) and by forcing wrap, which turned the
+  flat blocks into noise instead. The casts in `glN64_GX/GXcast.h` are now plain C, covered by
+  `tests/test_gxcast.c`. In Cemu the Banjo-Tooie title screen now shows the logo and textured terrain with no
+  blocks, and Jet Force Gemini's title screen is textured and lit. Other games were not re-checked frame by
+  frame.
+* **Grain** on textures and gradients was explained here as Rare's dithering. Part of it was the bug above (it
+  was the same wrong sampling). How much grain is left after the fix, and whether it is the intended dither, was
+  not measured. An optional video-interface filter would soften it; it is not written.
 * Conker draws about 1500 primitives per frame, each a separate GX2 draw. Submitting them is cheap (about
   5 ms per frame); the glN64 vertex and combiner work in front of them is not.
 
@@ -62,7 +71,6 @@ being **interpreted**: the recompiler is off.
 
 ## Not done yet
 
-* The solid-colour blocks (about 56 px squares in a fixed grid) that sit in the middle of the screen in some Banjo-Kazooie scenes. They are not stale textures (checked), not partial `FillRect` calls and not textured rectangles; the draw that makes them was not found.
 * The recompiler (the big speed win), and fast memory access in generated code.
 * A video-interface filter (dither, anti-alias, blur) for a closer look to a console picture.
 * Everything on real hardware: audio by ear, 1080p output, controllers other than the GamePad.

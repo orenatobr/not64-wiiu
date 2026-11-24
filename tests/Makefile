@@ -12,7 +12,7 @@ BUILD := build
 
 GLUE := ../wiiu/source/core
 
-TESTS := test_heap test_save test_rom
+TESTS := test_heap test_save test_rom test_gxcast
 
 .PHONY: all clean
 all: $(addprefix $(BUILD)/,$(TESTS))
@@ -29,6 +29,10 @@ $(BUILD)/test_save: test_save.c $(GLUE)/save_wiiu.c $(GLUE)/save_wiiu.h
 $(BUILD)/test_rom: test_rom.c $(GLUE)/save_wiiu.c $(GLUE)/ROM-Cache-WiiU.c ../main/rom_gc.c
 	@mkdir -p $(BUILD)
 	$(HOSTCC) $(CORE_CFLAGS) -o $@ test_rom.c $(GLUE)/save_wiiu.c $(GLUE)/ROM-Cache-WiiU.c ../main/rom_gc.c
+
+$(BUILD)/test_gxcast: test_gxcast.c ../glN64_GX/GXcast.h
+	@mkdir -p $(BUILD)
+	$(HOSTCC) $(CFLAGS) -o $@ test_gxcast.c -lm
 
 clean:
 	rm -rf $(BUILD)
