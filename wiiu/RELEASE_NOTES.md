@@ -1,29 +1,22 @@
-## not64 for Wii U (preview 5): installable title (WUP)
+## not64 for Wii U 0.6.0: textures and colours are scaled correctly
 
-**What this is.** "Recompiling" Conker's Bad Fur Day for the Wii U was done as an emulator in a title, not as a
-Virtual Console inject and not as a static recompilation. The UWUVCI N64 list reports Conker as not working
-through Nintendo's own VC emulator, and there is no decompilation to recompile statically. The zips hold the
-title in the **Cemu/Loadiine layout, not an encrypted install package**: encrypting needs your own Wii U common
-key, which cannot be shipped. One command from zip to installable WUP is in wiiu/README.md.
+**The fix.** The renderer converted integers to floats with Gekko paired-single instructions that rely on
+registers a Wii U title never sets up. Texture scales stayed at 32768 instead of 0.5 and 8 bit colours stayed in
+0..255 instead of 0..1, so textured triangles sampled far outside their textures and lighting saturated. That is
+the cause of the "blocks of flat colour" in Banjo-Kazooie and Banjo-Tooie that earlier notes listed as not found,
+and part of the grain. The conversions are now plain C (`glN64_GX/GXcast.h`) with a host test.
 
-* **New: `not64-wiiu-wup.zip`**, the app as a Wii U title (`code`, `content`, `meta`, with a `cos.xml` that
-  asks the OS for a codegen area). Cemu and Loadiine read it as it is. To install it on a console, encrypt it
-  with NUSPacker and your own common key (`tools/make_wup.py`, see wiiu/README.md); the key is not shipped.
-* **New: `not64-conker-wup.zip`**, the same title named Conker's Bad Fur Day (title id 000500001e64c0ab) with
-  `sd/not64/autoboot.txt` pointing at `roms/Conker.z64`. Copy your own ROM there; none is included.
-* **Start straight in a game.** If `sd:/not64/autoboot.txt` names a ROM (for example `roms/Conker.z64`), the
-  app opens it without the game browser. `tools/make_wup.py --rom` writes that file and a copy of your ROM for
-  the SD card. No game is ever put in the title or in a release.
-* Why not a Virtual Console inject: the UWUVCI N64 list reports Conker's Bad Fur Day as not working there
-  (black screen or no picture). This port runs it on its own renderer instead.
+Seen in Cemu 2.6 on an Apple M series Mac: the Banjo-Tooie title screen shows its logo and textured terrain
+with no coloured blocks, and the Jet Force Gemini title screen is textured and lit. Conker was not clearly
+different in the frames captured. Other games were not re-checked.
 
 Read this before testing:
 
-* The zips hold the title in the Cemu/Loadiine layout. An installable, encrypted WUP needs your own Wii U common
-  key, so it cannot be built or shipped here (steps in wiiu/README.md).
-* **Tested in Cemu only, never on a Wii U.** The WUP layout and `cos.xml` were written from the public format;
-  the title itself was not started in Cemu in this release, and the autoboot path was only compiled.
-* Conker runs at about half speed on the interpreter. The recompiler is still off: it has a bug in real games
-  (docs/DYNAREC.md).
+* **Tested in Cemu only, never on a Wii U.**
+* Lighting changes everywhere (colours were saturated before), so scenes look darker and more contrasted than
+  in earlier releases. That is expected; nobody compared them to a real console.
+* Speed is unchanged: the interpreter is still the limit and the recompiler is off (docs/DYNAREC.md).
+* The zips hold the title in the Cemu/Loadiine layout, not an encrypted install package; encrypting needs your
+  own Wii U common key (wiiu/README.md). No game is ever put in the title or in a release.
 
-See wiiu/README.md.
+See wiiu/README.md and docs/ACCURACY.md.
